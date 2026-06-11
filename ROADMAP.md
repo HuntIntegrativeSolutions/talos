@@ -122,15 +122,23 @@ for project-level summaries).
 
 **Output:** `docs/upstream/dox-framework-notes.md`
 
-### 0D — Aider PageRank mechanism
-**What the session confirmed:**
-- Personalized PageRank over a codebase graph, seeded by the current task's files/symbols
-- Yields a ~1k-token relevance map ("repo-map") injected into the planner
-- ~70x fewer tokens than raw grep fan-out
-- For TALOS: seeded by a task's tags/routines → NEXUS graph → ~1k-token relevant subgraph
+### 0D — Aider PageRank mechanism ✓ COMPLETE
+**Documented:** Full pipeline from symbol extraction (tree-sitter AST, not ctags) through
+graph construction (NetworkX MultiDiGraph, file-level nodes, identifier-reference edges),
+Personalized PageRank (alpha=0.85, NetworkX default; personalization vector seeded from chat
+context + mentioned identifiers), edge weight formula (6 factors: mentioned=10×,
+well-named=10×, private=0.1×, generic=0.1×, chat-context=50×, freq=√N), binary search for
+token budget fitting (15% tolerance), three-level caching (diskcache + in-memory tree cache
++ final map cache).
 
-**Still to document:** how Aider builds and weights the graph, what "seeding" means in practice,
-how to implement this over Neo4j with NEXUS data.
+**Key TALOS findings:**
+- Graph is routine-level (not rung-level) — analogous to Aider's file-level nodes
+- 50× chat-context seed boost is the dominant factor; seed selection matters most
+- ISA-5.1 tag naming already satisfies the "well-named" 10× boost heuristic
+- `Wrk_` prefix tags map directly to Aider's `_` private-identifier 0.1× penalty
+- Full pipeline runnable from existing NEXUS tools (no new indexing needed)
+- Start with NetworkX on NEXUS subgraph (<500 nodes per area); defer native Cypher GDS PageRank
+- Recommended token budget: 1500 tokens (~25 ranked rung references)
 
 **Output:** `docs/upstream/aider-pagerank-notes.md`
 
