@@ -77,30 +77,50 @@ Only Hermes and Space Agent contribute actual code to the repo; those carry MIT 
 
 **Output:** `docs/upstream/hermes-notes.md`
 
-### 0B — Space Agent deep-dive
-**What the session confirmed:**
-- Spaces/widgets are plain JS/JSX emitted by the agent and executed in a sandbox
-- Time-travel via git-backed version history of space/widget definitions
-- "Code-mode" — fenced block output rather than JSON tool calls (token savings)
-- Already uses the DOX AGENTS.md hierarchy (same one this repo uses)
-- Frontend-centric model — deliberately light backend
+### 0B — Space Agent deep-dive ✓ COMPLETE
+**Documented:** Spaces YAML schema, widget lifecycle (create→mount→render→patch→cleanup),
+grid system (1-24 col×row, ~85px/cell, infinite pan canvas), agent-authored widget API
+(`upsertWidget`/`patchWidget`, turn-staged editing protocol), time-travel via
+`isomorphic-git` (whole-`~/` versioning, rollback/revert with conflict detection), NO
+built-in kanban or Gantt — both must be first-party TALOS widgets, widget sandbox gap
+(NOT strict — main browser context; TALOS must add CSP+postMessage bridge per Contract 4),
+tech stack (Alpine.js + Node.js + Electron, no external DB for basic ops), DOX mandatory.
 
-**Still to document:** exact widget lifecycle, sandbox implementation, how Spaces communicate
-with the backend, the layout-definition format.
+**Key TALOS findings:**
+- Widget sandbox is intentionally open — TALOS adds the gate (propose→sandbox-render→critics→pin)
+- `space.api` is the clean abstraction layer; TALOS swaps the implementation for a board-API proxy
+- Time-travel maps to: space layout versions via `space_versions` table + task event log replay
+- L0/L1/L2 layer model maps to: TALOS core / client-scoped / user-scoped widgets
 
 **Output:** `docs/upstream/space-agent-notes.md`
 
-### 0C — Agent Zero deep-dive
-**What the session confirmed:**
-- Superior/subordinate delegation model
-- Memory areas: facts, fragments, verified solutions (FAISS-only — the limitation)
-- Hard project isolation
-- Linux desktop in canvas for driving GUI-only apps
+### 0C — Agent Zero deep-dive ✓ COMPLETE
+**Documented:** Tool auto-trust hole (5-tier path search, dynamic import, no gate — the hole
+TALOS closes), SKILL.md as documentation-only format (agent performs the recipe; no auto-exec),
+synchronous subordinate delegation (shared AgentContext — TALOS rejects shared context; adopts
+profile-override), three memory areas (MAIN/FRAGMENTS/SOLUTIONS in one FAISS index), background
+consolidation pipeline (MERGE/REPLACE/KEEP_SEPARATE/UPDATE/SKIP; 60s timeout; 0.75 replace
+threshold), `@extensible` decorator for transparent hook injection (architecture gold), 5-tier
+project isolation (.a0proj/ + path-override hierarchy), scheduler model (cron/adhoc/planned).
 
-**Still to document:** memory consolidation pipeline details, the drop-in extensions mechanism,
-how the hierarchy propagates context down to sub-agents.
+**Key TALOS findings:**
+- `@extensible` pattern: use on every major lifecycle step (task_claim, gate_evaluate, critic_run, etc.)
+- Name SOLUTIONS → CRYSTALLIZED in TALOS to avoid confusion with human-verified
+- FAISS → pgvector swap; consolidation gets client-scope hard block
+- SKILL.md format is the right TALOS skill format; add `propose→review→pin` gate over it
 
 **Output:** `docs/upstream/agent-zero-notes.md`
+
+### 0F — DOX Framework deep-dive ✓ COMPLETE (bonus — not in original plan)
+**Documented:** DOX as hierarchical doc/contracts convention (no library, markdown AGENTS.md
+only), parent→child inheritance rules (child strict, never weaker), `generate_dox_tree` as
+a one-way rendering function (live DB → AGENTS.md tree; read-only; atomic swap; crash-safe),
+inlined-vs-live-routed distinction, SKILL.md/DOX relationship (orthogonal — DOX owns the
+module; SKILL.md is a deliverable artifact), enforcement mechanisms (protocol + CI test),
+TALOS adoption plan (AGENTS.md tree needed for each component dir; `generate_talos_dox_tree`
+for project-level summaries).
+
+**Output:** `docs/upstream/dox-framework-notes.md`
 
 ### 0D — Aider PageRank mechanism
 **What the session confirmed:**
