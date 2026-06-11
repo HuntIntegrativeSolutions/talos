@@ -1,0 +1,34 @@
+# Python
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+
+# Node
+node_modules/
+dist/
+.next/
+
+# Env & secrets
+.env
+.env.*
+*.local
+.mcp.json
+*override*.json
+
+# Data / local state
+data/
+*.db
+*.sqlite
+.talos/
+
+# OS / editor
+.DS_Store
+.vscode/
+.idea/
+
+# Claude Code local settings
+.claude/
+
+# Playwright snapshots
+.playwright-mcp/
