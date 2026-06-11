@@ -142,14 +142,28 @@ token budget fitting (15% tolerance), three-level caching (diskcache + in-memory
 
 **Output:** `docs/upstream/aider-pagerank-notes.md`
 
-### 0E — OpenClaw gateway pattern
-**What the session confirmed:**
-- "Gateway in front of the model" pattern — separates the proactive loops from privileged tools
-- Documented attack surface (broad access, loaded skills treated as trusted)
-- TALOS takes the sandboxed-gateway pattern; adds the gate to close the "loaded skill = trusted" hole
+### 0E — OpenClaw gateway pattern ✓ COMPLETE
+**Documented:** Full gateway architecture (control-plane diagram, auth, routing, tool
+resolution, surface-based dangerous-tool deny list), proactive loop model (cron/heartbeat
+as agent turns through same policy pipeline — NOT separately privileged), skill injection
+vulnerability (SKILL.md body injected to system prompt with no capability mediation, no
+signing, no manifest enforcement — OpenClaw's own RFC says Phase 1-3 is unimplemented),
+7-layer tool policy pipeline, optional Docker sandboxing (network:none + readOnlyRoot),
+session management (routing, NOT auth — session key provides no authorization boundary),
+auth-attempt rate limiting only (no token/cost budgets), threat model atlas (5 trust
+boundaries, 5 documented attack vectors including prompt injection and skill injection).
 
-**Still to document:** the exact attack surface, how the gateway pattern works, what
-"sandboxing" means in this context.
+**Key TALOS findings:**
+- OpenClaw is explicitly NOT a multi-tenant security boundary (single-operator personal-assistant only)
+- Session key = routing label; TALOS replaces with board_id + Postgres RLS (hard auth)
+- "Loaded skill = trusted" hole is documented by OpenClaw itself; their fix (Phase 1-3 RFC)
+  is unimplemented. TALOS implements it: propose → critics → human approve → pin
+- tools.elevated host bypass: NOT adopted. No agent escapes the sandbox in TALOS
+- 7-layer policy pipeline is the right structure; TALOS adds an 8th layer (per-skill grants)
+- Docker sandbox defaults (network:none, readOnlyRoot:true) adopted wholesale
+- 3-axis budget (tokens, time, tool-calls) fills the gap OpenClaw leaves in cost controls
+- `openclaw security audit` pattern → TALOS `talos audit` command (capability manifest drift,
+  orphaned session keys, unsigned skills, overdue gate decisions)
 
 **Output:** `docs/upstream/openclaw-notes.md`
 
