@@ -52,6 +52,8 @@ Everything in BLUEPRINT.md is settled at the design level:
 | Claude Code (Anthropic) | Proprietary | **Patterns only** — structured results, PreToolUse rewrite |
 | Codex CLI (OpenAI) | MIT | **Patterns only** — exec category bans, session keys |
 | Aider | Apache 2.0 | **Patterns only** — PageRank context map |
+| LangGraph (LangChain AI) | MIT | **Patterns + code** — BSP execution engine, interrupt/Command gate |
+| Graphiti (Zep AI) | Apache 2.0 | **Patterns + code** — bi-temporal graph, episode ingestion |
 
 **Rule:** anything marked "patterns only" means ideas and mechanisms only — zero ported code.
 Only Hermes and Space Agent contribute actual code to the repo; those carry MIT notices.
@@ -166,6 +168,51 @@ boundaries, 5 documented attack vectors including prompt injection and skill inj
   orphaned session keys, unsigned skills, overdue gate decisions)
 
 **Output:** `docs/upstream/openclaw-notes.md`
+
+### 0G — LangGraph deep-dive ✓ COMPLETE
+**Documented:** BSP/Pregel execution model (StateGraph compiles to Pregel, not directly executable),
+typed channel system (LastValue, Topic, BinaryOperatorAggregate, EphemeralValue), `interrupt()` +
+`Command(resume/goto/update)` for human-in-the-loop gating, critical gotcha (node re-executes from
+start on resume — all side effects must be in a separate post-gate node), 5-way gate mapping to
+Command outcomes, Checkpoint TypedDict (channel_values + channel_versions + versions_seen),
+langgraph-checkpoint-postgres backend, 7 stream modes (values, updates, messages, tasks,
+checkpoints, custom, debug), time-travel via `get_state_history()` + `update_state()` + fork by
+checkpoint_id, Send API for fan-out/fan-in parallel tasks with channel reducers, subgraph namespace
+isolation with checkpointer inheritance, LangGraph Platform = closed-source commercial (not in repo).
+
+**Key TALOS findings:**
+- Strategy Ladder maps directly to a StateGraph — replace hand-rolled Hermes dispatcher with LangGraph
+- 5-way gate is `interrupt()` + `Command`; safety rule: NO side effects before `interrupt()` in gate node
+- langgraph-checkpoint-postgres integrates with TALOS's existing Postgres stack; each `thread_id` = task UUID
+- Hermes task rows and LangGraph checkpoints coexist — loosely coupled through `task_id`
+- `custom` stream mode is the right channel for NEXUS analysis progress and gate events to the cockpit
+- `get_state_history()` + fork drives the cockpit timeline scrubber (time-travel replay)
+- LangGraph Platform not needed — run as embedded Python library inside TALOS's FastAPI server
+
+**Output:** `docs/upstream/langgraph-notes.md`
+
+### 0H — Graphiti deep-dive ✓ COMPLETE
+**Documented:** Bi-temporal graph model (valid_at/invalid_at = event time; created_at/expired_at =
+transaction time), 4 node types (Entity, Episodic, Community, Saga), 5 edge types (RELATES_TO facts,
+MENTIONS provenance, HAS_MEMBER, HAS_EPISODE, NEXT_EPISODE), full ingestion pipeline (4-15 LLM calls
+per episode: extract nodes → 3-pass dedup → attribute extraction → edge extraction → contradiction
+detection → community → saga), automatic contradiction handling (old edge gets `invalid_at` set; NOT
+deleted; full history preserved), 3-pass entity dedup (exact string → MinHash/Jaccard >0.9 → LLM
+arbitration), hybrid search (vector + BM25 + RRF + cross-encoder reranking + BFS graph traversal;
+150-500ms typical), `add_triplet()` for known-fact injection (bypasses LLM pipeline), MCP server
+with 14 tools, group_id multi-tenancy (logical or per-database), Apache 2.0 license.
+
+**Key TALOS findings:**
+- Runs ON TOP of existing NEXUS Neo4j instance — separate labels, no schema collision; use separate group_id
+- 4–15 LLM calls per episode is real cost; use `add_triplet()` for NEXUS-sourced known facts
+- Contradiction detection is automatic and non-destructive — critical for parameter-change audits
+- `SagaNode` maps directly to TALOS tasks (one saga per task); sagas roll up to project sagas
+- Bootstrapping pattern: seed Graphiti `:Entity` nodes from NEXUS equipment tags via `add_triplet()`
+- Custom entity types (Equipment, Fault, Parameter, Task) drive typed LLM extraction
+- MCP server (14 tools) is how the TALOS agent reads/writes Graphiti during task execution
+- Temporal query support enables "what was the setpoint on date X?" — directly useful for incident RCA
+
+**Output:** `docs/upstream/graphiti-notes.md`
 
 ---
 
