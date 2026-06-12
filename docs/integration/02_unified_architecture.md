@@ -185,7 +185,7 @@ boundary is guarded by *absence of capability*.
 
 ## 3. Layer 2 — Control flow: one task, intake to approved deliverable
 
-A worked example, narrated against the §1 diagram. **Task:** *a Acme Line 1 packaging audit that
+A worked example, narrated against the §1 diagram. **Task:** *an Acme Line 1 packaging audit that
 produces an approved audit report and surfaces a MEDIUM defect, which spawns a gated remediation task.*
 Every component, gate, and store it touches is named.
 

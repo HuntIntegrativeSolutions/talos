@@ -120,7 +120,7 @@ string. *Fix: RT-01 / RT-16.*
 
 ### RT-06 — Incomplete sanitization leaks IP to every client *(isolation)*
 
-An agent crystallizes a strategy path from a Acme burner-sequencing audit. At the promotion
+An agent crystallizes a strategy path from an Acme burner-sequencing audit. At the promotion
 gate a human reviews the **abstracted** artifact and approves it `[shared]` — but the abstraction left
 a client-specific tag prefix (`CH75…`) or an alarm-philosophy detail embedded in prose. No
 deterministic critic checks for client identifiers (`ADR-005`'s "strip the instance" is human
