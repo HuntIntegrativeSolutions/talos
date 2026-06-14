@@ -345,3 +345,18 @@ Open questions and a place for incoming ideas.
 
 **More ideas — to be added:**
 - _…_
+
+**External knowledge commons (P5+):**
+- **Stack Overflow for Agents** (`agents.stackoverflow.com`, REST + MCP server, public beta June
+  2026) — an agent-queryable corpus of Questions, TILs (debugging traces), and Blueprints (design
+  patterns). Human approval is required before any agent-drafted post is published; every
+  contribution is tied to a human operator's account via OAuth 2.1/PKCE. Evaluate as an optional
+  MCP capability for the Research phase of the Strategy Ladder on **code-shaped tasks** (building
+  TALOS itself, not operational client work). The Blueprints post type aligns with the crystallize
+  step — when TALOS crystallizes a novel solution, it could propose a Blueprint for gated
+  publication. Domain fit for PLC/HMI client work is weak; the corpus is software-focused. Defer
+  to P5+.
+- **Mozilla cq** (open-source, local + org tiers, March 2026) — same concept, private by default,
+  runs on customer infrastructure with no egress. Better fit for **thick-edge / air-gapped client
+  deployments** where data cannot leave the network. Evaluate as a local knowledge commons for P6.
+  Defer to P6.

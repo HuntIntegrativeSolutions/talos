@@ -58,3 +58,33 @@ isolation but *not* filesystem isolation, which is why TALOS adds the sandbox).
 2. [ ] Enforce RLS as the hard isolation boundary (keys never authorize).
 3. [ ] Implement restrict-only config inheritance + a Docker FS sandbox.
 4. [ ] Attach idempotency keys to every write-class side effect.
+
+## Session key ↔ schema mapping
+
+This section closes the gap between the abstract session key `task:{board_id}:{task_id}:{attempt}`
+and the concrete columns in `engine/schema.sql` and `engine/schema-additions.sql`.
+
+| Session key segment | Schema column | Notes |
+| :--- | :--- | :--- |
+| `board_id` | `task_runs.board_id` | Hard isolation key; also the RLS enforcement axis (D1). |
+| `task_id` | `task_runs.task_id` | FK to `tasks.id`; scopes the worker to one kanban card. |
+| `attempt` | `task_runs.attempt_no` | Per-task monotonic counter (1 = first claim, 2 = first reclaim after crash, …). Added in `schema-additions.sql` (RT-20). Minted at claim time; never changed after claim. |
+| full key | — | The session key is constructed at claim time as a string; it is not stored as its own column. `task_runs.id` (global bigint) uniquely identifies the run; the session key's `attempt` segment is `task_runs.attempt_no`. |
+
+**`run_id` vs `attempt_no`.**  
+`task_runs.id` (`run_id`) is the global identity of one execution attempt — unique across all
+tasks and boards. `attempt_no` is the per-task ordinal (1, 2, 3 …). The session key uses
+`attempt_no` because it must be deterministic and reproducible from the task context alone;
+`run_id` is an opaque global bigint that cannot be pre-computed before the row is inserted.
+`tasks.current_run_id` is a FK to `task_runs.id` pointing at the currently-active run.
+
+**`thread_id` does not exist in the schema.**  
+The concept of "thread" maps to the session key itself (`task:{board_id}:{task_id}:{attempt}`).
+There is no separate `thread_id` column. The session key is the thread identifier.
+
+**Crash recovery.**  
+On a crash, the engine inserts a new `task_runs` row with `attempt_no = previous + 1`,
+constructs a new session key, and the worker re-reads the checkpoint log from `task_events`.
+The resumable cursor (CR-23, `capability-manifest` contract) lets the worker resume
+mid-operation rather than restart. Idempotency keys (`…:{attempt}:{step}`) on every
+write-class side effect (action item 4) prevent double-application on resume.

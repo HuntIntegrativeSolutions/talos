@@ -453,7 +453,40 @@ CREATE TRIGGER trg_pm_escalate_milestone_risk
 -- LIMIT 1;
 
 -- ---------------------------------------------------------------------------
--- 9. MIGRATION NOTES
+-- 9. ROW-LEVEL SECURITY — milestones (client isolation, same pattern as schema.sql)
+-- ---------------------------------------------------------------------------
+-- milestones carries board_id; apply the same two-policy pattern:
+--   board_isolation — client sessions see only their board's milestones.
+--   admin_bypass    — talos_admin bypasses for migrations and internal tooling.
+
+ALTER TABLE milestones ENABLE ROW LEVEL SECURITY;
+CREATE POLICY milestones_board_isolation ON milestones
+    USING     (board_id = current_setting('app.board_id', true))
+    WITH CHECK (board_id = current_setting('app.board_id', true));
+CREATE POLICY milestones_admin_bypass ON milestones
+    USING (current_user = 'talos_admin');
+
+-- ---------------------------------------------------------------------------
+-- 11. WORKER ISOLATION — attempt_no on task_runs (RT-20 / ADR-010)
+-- ---------------------------------------------------------------------------
+-- The ADR-010 session key is task:{board_id}:{task_id}:{attempt}. attempt_no
+-- is the per-task counter: 1 for the first claim, 2 after a crash-recovery
+-- reclaim, etc. It is minted at claim time (never updated after claim).
+-- The unique index enforces that no two concurrent claims share an attempt slot.
+
+ALTER TABLE task_runs ADD COLUMN attempt_no INTEGER NOT NULL DEFAULT 1;
+CREATE UNIQUE INDEX idx_runs_attempt ON task_runs(task_id, attempt_no);
+
+-- Migration note: existing rows get attempt_no = 1; backfill monotonically
+-- if multiple runs exist for the same task:
+--   UPDATE task_runs r
+--   SET attempt_no = sub.rn
+--   FROM (SELECT id, ROW_NUMBER() OVER (PARTITION BY task_id ORDER BY started_at) AS rn
+--         FROM task_runs) sub
+--   WHERE r.id = sub.id;
+
+-- ---------------------------------------------------------------------------
+-- 12. MIGRATION NOTES
 -- ---------------------------------------------------------------------------
 -- After applying these additions:
 --   1. Populate estimated_hours for existing tasks (NULL = no estimate, not zero).

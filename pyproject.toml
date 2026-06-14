@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["platform*"]
+
+[project]
+name = "talos"
+version = "0.1.0"
+requires-python = ">=3.11"
+
+[project.optional-dependencies]
+app = [
+    "fastapi",
+    "uvicorn[standard]",
+    "psycopg2-binary",
+    "langgraph>=0.2",
+    "langgraph-checkpoint-postgres",
+]
+test = [
+    "pytest",
+    "pytest-asyncio",
+    "psycopg2-binary",
+    "testcontainers[postgres]",
+    "httpx",
+    "fastapi",
+    "langgraph>=0.2",
+]

@@ -46,7 +46,7 @@
 | CR-12 | LangGraph node re-exec on resume vs side-effects-once-after-gate | HIGH | RESOLVED | ADR-011, ADR-016, ADR-010 |
 | CR-13 | Gate-bound evaluator self-advance vs stop-at-gate (fail-closed) | HIGH | RESOLVED | ADR-006, ADR-004, capability-manifest |
 | CR-14 | OpenLumara **GPL-3.0** vs TALOS **MIT** | CRITICAL | RESOLVED | new license-policy ADR |
-| CR-15 | GitHub Agentic Workflows — license unstated | MEDIUM | **NEEDS-HUMAN-DECISION** | new license-policy ADR |
+| CR-15 | GitHub Agentic Workflows — license unstated | MEDIUM | **RESOLVED** | new license-policy ADR |
 | CR-16 | Emulate 5000: no download API + UDT privilege violations | HIGH | **RESOLVED** | ADR-004, ADR-007, capability-manifest, critics |
 | CR-17 | DOX soft (prose) enforcement vs structural safety | MEDIUM | RESOLVED | DOX/AGENTS.md convention (test) |
 | CR-18 | NEXUS findings lifecycle (confirmed-only) vs TALOS task gate | MEDIUM | RESOLVED | capability-manifest, ADR-011, nexus-federation |
@@ -388,12 +388,14 @@ landing point at the four hot boundaries (MCP, gate, memory, isolation).
   vendorability either way. Building on copied gh-aw code without checking risks a CR-14-style breach.
 - **Options.** (a) Assume permissive and vendor — rejected; unverified. (b) Treat as reference
   architecture and reimplement; verify the license before any code reuse.
-- **Resolution (NEEDS-HUMAN-DECISION).** Until the license is confirmed, treat gh-aw as a **reference
-  architecture only** — reimplement the mechanisms (MCP Gateway credential isolation, Safe-Outputs +
-  `max_writes`, threat-detection critic, compile-time plan validation). **Escalate** to confirm the
-  actual license before any line of gh-aw code is reused. Do not invent the license.
+- **Resolution (RESOLVED — 2026-06-14).** License confirmed as **MIT** at
+  https://github.com/github/gh-aw (GitHub Agentic Workflows, GitHub Next). MIT permits commercial
+  use, modification, distribution, and private use; code is vendorable in the TALOS MIT-licensed
+  project with attribution (include the original copyright notice and license text). Direct code
+  reuse is now permissible; reimplementation of the mechanisms remains the preferred approach to
+  avoid coupling to gh-aw internals, but copying isolated utility code is no longer blocked.
 - **Touches.** The same new **license/dependency-policy ADR**.
-- **Confidence.** **NEEDS-HUMAN-DECISION.**
+- **Confidence.** **RESOLVED.**
 
 ### CR-16 — Emulate 5000: no programmatic download API + UDT privilege violations
 
@@ -627,7 +629,7 @@ contract/ADR is frozen.
 | ID | Decision required | Why it can't be auto-resolved | Blocks |
 | :--- | :--- | :--- | :--- |
 | **CR-08** | ~~Physical graph topology: one shared Neo4j or separate TALOS Neo4j + NEXUS read-through over MCP.~~ | **RESOLVED 2026-06-14.** Separate TALOS Neo4j chosen (option b). | Closed. |
-| **CR-15** | Confirm the **GitHub Agentic Workflows license** before reusing any gh-aw code. | The note doesn't state the license; vendorability is unknown. Must not be invented. | The license/dependency-policy ADR; any direct code reuse. |
+| **CR-15** | ~~Confirm the **GitHub Agentic Workflows license** before reusing any gh-aw code.~~ | **RESOLVED 2026-06-14.** License is MIT (https://github.com/github/gh-aw). Vendorable with attribution. | Closed. |
 | **CR-16** | ~~Choose the Rockwell test path A / B / C and decide on Logix Echo SDK licensing cost.~~ | **RESOLVED 2026-06-14.** Dual-track: NEXUS (MCP) + pylogix + Logix Echo SDK. Complete documentation + skills + hooks package. | Closed. |
 
 **Also needs prototyping before the dependent piece is trusted (NEEDS-PROTOTYPE):**

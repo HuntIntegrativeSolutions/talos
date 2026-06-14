@@ -1,7 +1,7 @@
 # ADR-016: DAG-driven project scheduling — the board, Gantt, and dispatcher are one system
 
-**Status:** Proposed
-**Date:** 2026-06-11
+**Status:** Accepted
+**Date:** 2026-06-14
 **Deciders:** Hunt Integrative Solutions LLC
 
 ## Context
@@ -50,7 +50,10 @@ the reverse.
    - **Critical path re-computer** — on any task's duration exceeding estimate by >20%, or any
      status change, recompute the forward/backward pass and update milestone status.
    - **Milestone risk escalator** — within 48 hours of a milestone deadline with incomplete
-     dependencies, emit a MEDIUM finding → auto-create issue → auto-dispatch a remediation task.
+     dependencies, emit a finding and act on it by severity: **HIGH** findings auto-create an issue
+     and stage the task for human review; **MEDIUM** findings auto-dispatch a remediation task with a
+     shortened gate (fewer critics, human approval still required — CR-26); **LOW** findings log to
+     the event stream only.
    - **Status report data compiler** — on demand or schedule, compile milestone status, completed
      vs. planned, critical path health, gate results, and budget burn into the data section of a
      status report.
@@ -163,5 +166,7 @@ infer from dependencies alone. The override is a first-class field with audit tr
 5. [ ] Update the dispatcher sort order to include `on_critical_path`.
 6. [ ] Document the Gantt widget contract for the cockpit (consumes `v_gantt`, renders bars
       color-coded by status, highlights critical path).
-7. [ ] Define the milestone-risk-to-finding severity mapping (MEDIUM → auto-dispatch remediation;
-      HIGH for safety-significant milestones).
+7. [x] Define the milestone-risk-to-finding severity mapping (resolved 2026-06-14):
+      HIGH → auto-create issue + stage for human review;
+      MEDIUM → auto-dispatch remediation task with shortened gate (human approval still required — CR-26);
+      LOW → log to event stream only.

@@ -259,13 +259,107 @@ CREATE TABLE widget_versions (
 -- =============================================================================
 -- ROW-LEVEL SECURITY (D1) — hard board isolation, enforced by the database.
 -- =============================================================================
--- The engine sets `SET talos.board_id = '<board>'` per connection/transaction;
--- every query is then transparently scoped to that board. Example for tasks
--- (repeat the pattern for each board-scoped table):
---
---   ALTER TABLE tasks ENABLE ROW LEVEL SECURITY;
---   CREATE POLICY tasks_board_isolation ON tasks
---       USING (board_id = current_setting('talos.board_id', true));
---
+-- The engine sets `SET app.board_id = '<board>'` per connection/transaction;
+-- every query is transparently scoped to that board. Two policies per table:
+--   board_isolation — client sessions see and write only their board's rows.
+--   admin_bypass    — talos_admin (migrations, internal tooling) bypasses RLS.
+-- current_setting('app.board_id', true) returns NULL when unset, which blocks
+-- all rows for non-admin sessions — the safe default for migrations.
 -- Edge nodes run single-board and sync only the non-sensitive coordination
 -- tables (tasks status, events, comments) up to the mothership.
+
+-- tasks
+ALTER TABLE tasks ENABLE ROW LEVEL SECURITY;
+CREATE POLICY tasks_board_isolation ON tasks
+    USING     (board_id = current_setting('app.board_id', true))
+    WITH CHECK (board_id = current_setting('app.board_id', true));
+CREATE POLICY tasks_admin_bypass ON tasks
+    USING (current_user = 'talos_admin');
+
+-- task_links
+ALTER TABLE task_links ENABLE ROW LEVEL SECURITY;
+CREATE POLICY task_links_board_isolation ON task_links
+    USING     (board_id = current_setting('app.board_id', true))
+    WITH CHECK (board_id = current_setting('app.board_id', true));
+CREATE POLICY task_links_admin_bypass ON task_links
+    USING (current_user = 'talos_admin');
+
+-- task_comments
+ALTER TABLE task_comments ENABLE ROW LEVEL SECURITY;
+CREATE POLICY task_comments_board_isolation ON task_comments
+    USING     (board_id = current_setting('app.board_id', true))
+    WITH CHECK (board_id = current_setting('app.board_id', true));
+CREATE POLICY task_comments_admin_bypass ON task_comments
+    USING (current_user = 'talos_admin');
+
+-- task_events (append-only audit log; board_isolation prevents cross-board reads)
+ALTER TABLE task_events ENABLE ROW LEVEL SECURITY;
+CREATE POLICY task_events_board_isolation ON task_events
+    USING     (board_id = current_setting('app.board_id', true))
+    WITH CHECK (board_id = current_setting('app.board_id', true));
+CREATE POLICY task_events_admin_bypass ON task_events
+    USING (current_user = 'talos_admin');
+
+-- task_runs
+ALTER TABLE task_runs ENABLE ROW LEVEL SECURITY;
+CREATE POLICY task_runs_board_isolation ON task_runs
+    USING     (board_id = current_setting('app.board_id', true))
+    WITH CHECK (board_id = current_setting('app.board_id', true));
+CREATE POLICY task_runs_admin_bypass ON task_runs
+    USING (current_user = 'talos_admin');
+
+-- task_attachments
+ALTER TABLE task_attachments ENABLE ROW LEVEL SECURITY;
+CREATE POLICY task_attachments_board_isolation ON task_attachments
+    USING     (board_id = current_setting('app.board_id', true))
+    WITH CHECK (board_id = current_setting('app.board_id', true));
+CREATE POLICY task_attachments_admin_bypass ON task_attachments
+    USING (current_user = 'talos_admin');
+
+-- notify_subs
+ALTER TABLE notify_subs ENABLE ROW LEVEL SECURITY;
+CREATE POLICY notify_subs_board_isolation ON notify_subs
+    USING     (board_id = current_setting('app.board_id', true))
+    WITH CHECK (board_id = current_setting('app.board_id', true));
+CREATE POLICY notify_subs_admin_bypass ON notify_subs
+    USING (current_user = 'talos_admin');
+
+-- task_gate_results (gate verdicts must never leak across client boards)
+ALTER TABLE task_gate_results ENABLE ROW LEVEL SECURITY;
+CREATE POLICY task_gate_results_board_isolation ON task_gate_results
+    USING     (board_id = current_setting('app.board_id', true))
+    WITH CHECK (board_id = current_setting('app.board_id', true));
+CREATE POLICY task_gate_results_admin_bypass ON task_gate_results
+    USING (current_user = 'talos_admin');
+
+-- spaces
+ALTER TABLE spaces ENABLE ROW LEVEL SECURITY;
+CREATE POLICY spaces_board_isolation ON spaces
+    USING     (board_id = current_setting('app.board_id', true))
+    WITH CHECK (board_id = current_setting('app.board_id', true));
+CREATE POLICY spaces_admin_bypass ON spaces
+    USING (current_user = 'talos_admin');
+
+-- space_versions
+ALTER TABLE space_versions ENABLE ROW LEVEL SECURITY;
+CREATE POLICY space_versions_board_isolation ON space_versions
+    USING     (board_id = current_setting('app.board_id', true))
+    WITH CHECK (board_id = current_setting('app.board_id', true));
+CREATE POLICY space_versions_admin_bypass ON space_versions
+    USING (current_user = 'talos_admin');
+
+-- widgets
+ALTER TABLE widgets ENABLE ROW LEVEL SECURITY;
+CREATE POLICY widgets_board_isolation ON widgets
+    USING     (board_id = current_setting('app.board_id', true))
+    WITH CHECK (board_id = current_setting('app.board_id', true));
+CREATE POLICY widgets_admin_bypass ON widgets
+    USING (current_user = 'talos_admin');
+
+-- widget_versions
+ALTER TABLE widget_versions ENABLE ROW LEVEL SECURITY;
+CREATE POLICY widget_versions_board_isolation ON widget_versions
+    USING     (board_id = current_setting('app.board_id', true))
+    WITH CHECK (board_id = current_setting('app.board_id', true));
+CREATE POLICY widget_versions_admin_bypass ON widget_versions
+    USING (current_user = 'talos_admin');

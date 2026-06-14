@@ -241,6 +241,13 @@ The design's safety spine is genuinely strong where it is *structural* — live 
 so even every BLOCKER above stops short of a live-processor write. That is the architecture working as
 intended, and it should be said plainly.
 
+**External validation of the Guardian doctrine:** Stack Overflow for Agents (public beta, June 2026)
+independently converged on the same gate pattern: agents propose, a multi-agent quality screen runs
+first, then a human must approve before anything is published — and `approved_by` is tied to a
+verified human identity via OAuth, never a request field. This is the Guardian doctrine operating at
+production scale on a different problem. It confirms the pattern is implementable and that the
+human-identity-from-session (not from body) requirement is the right structural enforcer for RT-01.
+
 The danger is concentrated where the spine quietly **degrades from structural to procedural**: a gate
 that trusts a string for "human," an isolation boundary (RLS) that is commented out, a de-identification
 rule that is a human checklist, an "air-gapped" edge that calls a hosted API, a frozen contract that

@@ -1,0 +1,312 @@
+"""
+TALOS P1 board API.
+
+Implements exactly the five read endpoints and the gate-outcome endpoint
+specified in docs/contracts/board-api.md. Nothing more.
+
+Gate POST enforces three doctrine rules:
+  RT-01: approved_by is always set from X-Human-Session header, never POST body.
+  RT-02: critics must pass (all_required_pass=true) before a human can approve.
+  RT-03: approved_at is set exclusively by post_gate_node, never by the API.
+"""
+
+from __future__ import annotations
+
+from typing import Any
+
+import psycopg2
+from fastapi import FastAPI, Header, HTTPException
+from pydantic import BaseModel
+
+from platform.db import board_scope, get_conn
+
+app = FastAPI(title="TALOS Board API")
+
+# The compiled LangGraph graph. Tests inject a MemorySaver-backed instance;
+# production wires in a PostgresSaver-backed one via set_graph().
+_graph = None
+
+
+def set_graph(g) -> None:
+    global _graph
+    _graph = g
+
+
+def _get_graph():
+    if _graph is None:
+        from platform.graph.spine import build_graph
+        set_graph(build_graph())
+    return _graph
+
+
+# ---------------------------------------------------------------------------
+# Task status enum (from schema.sql lines 38-40)
+# ---------------------------------------------------------------------------
+
+VALID_STATUSES = {
+    "backlog", "ready", "running", "blocked", "review",
+    "approved", "rejected", "done", "archived",
+}
+
+# Columns the view must never expose (board-api.md §1 — least-privilege projection)
+_HIDDEN = {
+    "claim_lock", "worker_pid", "session_id",
+    "idempotency_key", "model_override", "last_failure_error",
+}
+
+
+def _mask_task(row: dict) -> dict:
+    return {k: v for k, v in row.items() if k not in _HIDDEN}
+
+
+# ---------------------------------------------------------------------------
+# Request / response models
+# ---------------------------------------------------------------------------
+
+class CreateBoardRequest(BaseModel):
+    id: str
+    name: str
+
+
+class CreateTaskRequest(BaseModel):
+    id: str
+    title: str
+    body: str | None = None
+    assignee: str | None = None
+    priority: int = 0
+
+
+class PatchStatusRequest(BaseModel):
+    status: str
+
+
+class GateOutcomeRequest(BaseModel):
+    outcome: str
+    reason: str | None = None         # required for reject
+    justification: str | None = None  # required for waive and escalate
+    new_deliverable: dict | None = None  # required for edit
+    # NOTE: approved_by is intentionally absent — it comes from X-Human-Session header.
+
+
+# ---------------------------------------------------------------------------
+# Endpoints
+# ---------------------------------------------------------------------------
+
+@app.post("/boards", status_code=201)
+def create_board(req: CreateBoardRequest) -> dict:
+    # boards has no RLS policy — no board_scope needed here.
+    conn = get_conn()
+    try:
+        conn.autocommit = False
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute(
+                "INSERT INTO boards (id, name) VALUES (%s, %s) RETURNING id, name",
+                (req.id, req.name),
+            )
+            row = dict(cur.fetchone())
+        conn.commit()
+    except psycopg2.errors.UniqueViolation:
+        conn.rollback()
+        raise HTTPException(status_code=409, detail="board already exists")
+    finally:
+        conn.close()
+    return row
+
+
+@app.post("/boards/{board_id}/tasks", status_code=201)
+def create_task(board_id: str, req: CreateTaskRequest) -> dict[str, Any]:
+    conn = get_conn()
+    try:
+        with board_scope(conn, board_id) as cur:
+            cur.execute(
+                """
+                INSERT INTO tasks (id, board_id, title, body, assignee, priority, status)
+                VALUES (%s, %s, %s, %s, %s, %s, 'ready')
+                RETURNING id, board_id, title, status, priority, created_at
+                """,
+                (req.id, board_id, req.title, req.body, req.assignee, req.priority),
+            )
+            row = dict(cur.fetchone())
+    except psycopg2.errors.UniqueViolation:
+        raise HTTPException(status_code=409, detail="task already exists")
+    finally:
+        conn.close()
+    return row
+
+
+@app.get("/boards/{board_id}/tasks/{task_id}")
+def get_task(board_id: str, task_id: str) -> dict[str, Any]:
+    conn = get_conn()
+    try:
+        with board_scope(conn, board_id) as cur:
+            cur.execute(
+                "SELECT * FROM tasks WHERE id = %s AND board_id = %s",
+                (task_id, board_id),
+            )
+            row = cur.fetchone()
+    finally:
+        conn.close()
+    if row is None:
+        raise HTTPException(status_code=404, detail="task not found")
+    return _mask_task(dict(row))
+
+
+@app.patch("/boards/{board_id}/tasks/{task_id}/status")
+def patch_task_status(
+    board_id: str, task_id: str, req: PatchStatusRequest
+) -> dict[str, Any]:
+    if req.status not in VALID_STATUSES:
+        raise HTTPException(
+            status_code=422,
+            detail=f"status must be one of {sorted(VALID_STATUSES)}",
+        )
+    conn = get_conn()
+    try:
+        with board_scope(conn, board_id) as cur:
+            cur.execute(
+                "UPDATE tasks SET status = %s WHERE id = %s AND board_id = %s "
+                "RETURNING id, status",
+                (req.status, task_id, board_id),
+            )
+            row = cur.fetchone()
+    finally:
+        conn.close()
+    if row is None:
+        raise HTTPException(status_code=404, detail="task not found")
+    return dict(row)
+
+
+@app.get("/boards/{board_id}/tasks/{task_id}/gate")
+def get_gate_status(board_id: str, task_id: str) -> dict[str, Any]:
+    conn = get_conn()
+    try:
+        with board_scope(conn, board_id) as cur:
+            # v_gate_status is in schema.sql and filtered by RLS on underlying tables.
+            cur.execute(
+                "SELECT * FROM v_gate_status WHERE task_id = %s AND board_id = %s",
+                (task_id, board_id),
+            )
+            gate_row = cur.fetchone()
+            # Also return the per-critic detail rows for the cockpit.
+            cur.execute(
+                """
+                SELECT critic_name, required, verdict, evidence_uri, details, created_at
+                FROM task_gate_results
+                WHERE task_id = %s AND board_id = %s
+                ORDER BY created_at DESC
+                """,
+                (task_id, board_id),
+            )
+            critics = [dict(r) for r in cur.fetchall()]
+    finally:
+        conn.close()
+    if gate_row is None:
+        raise HTTPException(status_code=404, detail="task not found")
+    result = dict(gate_row)
+    result["critics"] = critics
+    return result
+
+
+@app.post("/boards/{board_id}/tasks/{task_id}/gate")
+def submit_gate_outcome(
+    board_id: str,
+    task_id: str,
+    req: GateOutcomeRequest,
+    x_human_session: str | None = Header(default=None, alias="X-Human-Session"),
+) -> dict[str, Any]:
+    # RT-01: approved_by always from X-Human-Session header, never the request body.
+    _SYSTEM_ACCOUNTS = {"service", "worker", "agent", "system"}
+    if not x_human_session or x_human_session in _SYSTEM_ACCOUNTS:
+        raise HTTPException(
+            status_code=403,
+            detail={"error": "human session required"},
+        )
+
+    _VALID_OUTCOMES = {"approve", "reject", "waive", "edit", "escalate"}
+    if req.outcome not in _VALID_OUTCOMES:
+        raise HTTPException(
+            status_code=422,
+            detail=f"outcome must be one of {sorted(_VALID_OUTCOMES)}",
+        )
+    if req.outcome == "reject" and not req.reason:
+        raise HTTPException(status_code=422, detail="reason is required for reject")
+    if req.outcome == "waive" and not req.justification:
+        raise HTTPException(status_code=422, detail="justification is required for waive")
+    if req.outcome == "escalate" and not req.justification:
+        raise HTTPException(status_code=422, detail="justification is required for escalate")
+    if req.outcome == "edit" and not req.new_deliverable:
+        raise HTTPException(status_code=422, detail="new_deliverable is required for edit")
+
+    conn = get_conn()
+    try:
+        with board_scope(conn, board_id) as cur:
+            # RT-02: enforce critic satisfaction before allowing approve.
+            if req.outcome == "approve":
+                cur.execute(
+                    "SELECT all_required_pass FROM v_gate_status "
+                    "WHERE task_id = %s AND board_id = %s",
+                    (task_id, board_id),
+                )
+                gate_row = cur.fetchone()
+                if gate_row is None:
+                    raise HTTPException(status_code=404, detail="task not found")
+                if not gate_row["all_required_pass"]:
+                    raise HTTPException(
+                        status_code=409,
+                        detail={"error": "required critics have not passed"},
+                    )
+
+            # For waive: block if any failing required critic has waivable=False.
+            if req.outcome == "waive":
+                cur.execute(
+                    """
+                    SELECT 1 FROM task_gate_results
+                    WHERE task_id = %s AND board_id = %s
+                      AND required = true AND waivable = false AND verdict = 'fail'
+                    LIMIT 1
+                    """,
+                    (task_id, board_id),
+                )
+                if cur.fetchone() is not None:
+                    raise HTTPException(
+                        status_code=409,
+                        detail={"error": "safety critics cannot be waived — use escalate"},
+                    )
+
+            # Retrieve session_key (= LangGraph thread_id) to resume the graph.
+            cur.execute(
+                "SELECT session_id, status FROM tasks WHERE id = %s AND board_id = %s",
+                (task_id, board_id),
+            )
+            task_row = cur.fetchone()
+    finally:
+        conn.close()
+
+    if task_row is None:
+        raise HTTPException(status_code=404, detail="task not found")
+    if not task_row["session_id"]:
+        raise HTTPException(
+            status_code=409,
+            detail="task has no active session — run the worker first",
+        )
+
+    session_key = task_row["session_id"]
+
+    # Resume the spine graph. post_gate_node writes approved_at, approved_by,
+    # task_events, and the status update — never this endpoint (RT-03).
+    from langgraph.types import Command
+
+    _get_graph().invoke(
+        Command(
+            resume={
+                "outcome": req.outcome,
+                "approved_by": x_human_session,
+                "reason": req.reason,
+                "justification": req.justification,
+                "new_deliverable": req.new_deliverable,
+            }
+        ),
+        config={"configurable": {"thread_id": session_key}},
+    )
+
+    return {"status": "ok", "outcome": req.outcome, "approved_by": x_human_session}

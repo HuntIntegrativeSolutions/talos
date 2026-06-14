@@ -1,0 +1,123 @@
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+## Project status
+
+**Pre-alpha, P1 complete, P2 complete.** TALOS is an agent harness for industrial and business operations. The engine port and web view have not been built. Runnable code:
+- `platform/validators/` — capability-manifest validator (P0)
+- `platform/critics/` — deterministic gate critics and registry (P2)
+- `platform/graph/spine.py` — 4-node LangGraph spine with five-outcome gate (P1/P2)
+- `platform/worker.py` — single-worker claim loop (P1, no dispatcher)
+- `platform/api.py` — FastAPI board API with full gate endpoint (P1/P2)
+- `platform/tests/` — 6 P1 spine tests + 4 P2 gate tests + critic unit tests
+
+## Running tests
+
+Tests require Docker (testcontainers spins up Postgres 16).
+
+Run all tests:
+```bash
+.venv/bin/python -m pytest platform/ -v
+```
+
+Run P1 spine tests only:
+```bash
+.venv/bin/python -m pytest platform/tests/test_spine.py -v
+```
+
+Run P2 gate tests only:
+```bash
+.venv/bin/python -m pytest platform/tests/test_p2_gate.py -v
+```
+
+Validate a capability manifest JSON file:
+```bash
+python -m platform.validators.capability_manifest <path/to/manifest.json>
+```
+
+There is no build system, Docker setup, or server to start yet. `web/`, `gateway/`, and `memory/` contain only documentation and schema files.
+
+## Repository layout
+
+```
+engine/        Postgres schema (schema.sql + schema-additions.sql + schema-p2.sql)
+platform/      Python modules; critics/, graph/, worker, api, tests all implemented
+web/           Placeholder — Space Agent cockpit (not built)
+gateway/       Placeholder — sandboxed proactive loops (not built)
+memory/        Placeholder — polyglot memory adapters (not built)
+docs/
+  ARCHITECTURE.md          High-level system overview
+  decisions/               ADR-001 through ADR-017 — binding design decisions
+  contracts/               Four frozen seam contracts (board-api, capability-manifest, nexus-federation, widget-sandbox)
+  integration/             Five reconciliation documents (integration map, conflicts, unified architecture, red-team, build sequence)
+  upstream/                Notes from five upstream harnesses studied before design
+BLUEPRINT.md               The authoritative living design document (v0.6)
+ROADMAP.md                 Phase-ordered roadmap
+```
+
+**Authority rule:** `BLUEPRINT.md` is the authoritative design document. On any conflict between it and other docs, BLUEPRINT wins.
+
+## Architecture
+
+### The Guardian doctrine
+> *AI proposes, humans review, deterministic critics gate, and nothing is written to a live system without a human's approval.*
+
+This doctrine is structural, not advisory. It is enforced by two hard boundaries:
+1. **MCP boundary = security boundary.** Domain capabilities (NEXUS first) live behind an MCP edge. The orchestrator can be fully compromised and still cannot reach a live processor.
+2. **Review gate = human-owned state transition.** A task cannot leave `review` status until every required critic in `task_gate_results` returns `pass` AND `tasks.approved_at` is set by a human.
+
+### Layers (top to bottom)
+| Layer | Directory | Role |
+|---|---|---|
+| Cockpit (view) | `web/` | Web Space Agent board — consumes engine via board-api only; never touches DB |
+| Board engine | `engine/` | Postgres source of truth: tasks, DAG, event log, gate, spaces/widgets |
+| Critics | `critics/` | Deterministic gate functions (verdict: pass/fail/warn); safety critics are escalate-only, never waivable |
+| Orchestration | — | Strategy Ladder: triage → research → plan → gate → execute → crystallize |
+| Memory | `memory/` | Four stores: Postgres (SoR), Neo4j (graph, federated from NEXUS), pgvector/Chroma (vector), Redis (hot) |
+| Gateway | `gateway/` | Sandboxed cron/proactive loops; may notify/propose, never approve |
+| Capabilities (MCP) | external | NEXUS (PLC analysis) and future packs — behind MCP; propose-only doctrine at their own edge |
+
+### Database schema
+`engine/schema.sql` is the primary schema. `engine/schema-additions.sql` adds PM/scheduling on top.
+
+Key tables:
+- `boards` — hard isolation boundary (`board_id` + Postgres RLS, set per-connection via `SET app.board_id = '...'`)
+- `tasks` — the core card; lifecycle: `backlog → ready → running → blocked → review → approved | rejected | done | archived`
+- `task_gate_results` — one row per critic evaluation; the gate is satisfied only when all required critics pass AND `tasks.approved_at` is set
+- `v_gate_status` — read model for gate state
+- `task_events` — append-only event log (the board is scrubbable / replayable)
+- `spaces` / `space_versions` / `widgets` / `widget_versions` — Space Agent view layer; time-travel versions layout only, never task records
+- `milestones` — DAG-driven PM checkpoints; status is computed by trigger, never set directly
+- `v_critical_path` / `v_gantt` — DAG forward/backward pass + Gantt projection as SQL views
+
+RLS: every board-scoped table has two policies — `board_isolation` (using `current_setting('app.board_id', true)`) and `admin_bypass` (for `talos_admin`). Cross-`board_id` reads return 0 rows by design.
+
+### Capability manifest contract
+`docs/contracts/capability-manifest.md` defines the frozen JSON contract every capability pack must publish before attaching behind MCP. The validator at `platform/validators/capability_manifest.py` enforces it deterministically (no LLM, no network).
+
+Key rules baked into the validator:
+- `profile` must be `read` or `write`; unknown = treated as `write`, fail-closed
+- `write` tools require `write_kind` ∈ `{"offline_artifact", "sim_only"}` — there is no live-write kind; live ops are not in any agent's reach at all
+- `sim_only` tools require a `sim_target` with `kind` and `verify_critic`
+- `safety: true` tools escalate-only; a safety critic can never be waived
+
+### Build sequence
+The build follows ADR-015's reorder (gate before full dispatcher):
+`P0 (schema+contracts) → P1 (single-worker spine) → P2 (critics + 5-outcome gate) → P3 (full dispatcher) → P4 (memory) → P5 (crystallize) → P6 (sim capability) → P7 (cockpit) → P8 (gateway)`
+
+Full detail is in `docs/integration/04_build_sequence.md`.
+
+## Design decisions
+
+All binding decisions are in `docs/decisions/` as ADRs (ADR-001 through ADR-017). Before proposing changes to any design boundary, check whether an ADR already governs it. The four frozen contracts in `docs/contracts/` define the seams between major components and must not be changed unilaterally.
+
+Critical ADRs to know:
+- **ADR-001** — TALOS is a platform; NEXUS is a capability behind MCP (not merged)
+- **ADR-002** — Board-as-Space; view never touches DB directly
+- **ADR-004** — Capability tool profiles; write = offline/sim only; no live-device action exists in any profile
+- **ADR-009** — Layered tool policy (intersection-only; each layer can only restrict, never expand)
+- **ADR-010** — Worker isolation via session keys (`task:{board_id}:{task_id}:{attempt}`)
+- **ADR-011** — Five gate outcomes: Approve / Reject-with-reason / Waive-with-justification / Edit-inline / Escalate
+- **ADR-015** — Phase reorder (gate + critics before full distributed dispatcher)
+- **ADR-016** — DAG-driven project scheduling (the schema-additions.sql PM layer)
