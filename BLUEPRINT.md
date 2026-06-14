@@ -162,7 +162,7 @@ Four stores, each for the job it does best, tiered hot → warm → cold:
 - **Vault topology.** A **shared reference vault + one vault per client**; client vaults may
   read-link the shared vault, never the reverse. The cross-scope link lives in the **graph, not in
   Obsidian wikilinks** — the graph holds one copy of each shared node and the vaults are per-scope
-  *projections*, so there is nothing to "sync." The exception is a **thick/air-gapped edge** that
+  *projections*, so there is nothing to "sync." The exception is a **thick edge** that
   can't query the graph live (Acme): it gets a **versioned, read-only, sanitized shared pack
   pulled down git-style** on its own cadence. Mothership = graph-as-linker, no copies; edge =
   versioned pull.
@@ -186,7 +186,7 @@ Four stores, each for the job it does best, tiered hot → warm → cold:
 
 The cockpit replaces the chatbot — chat is the training wheels, the board is the tool. It is a **web**
 Space Agent surface (resolved against native WinUI: one codebase serves every deployment, runs locally
-on an air-gapped edge, and matches the board-as-Space decision). A thin WebView2 shell is optional if
+on a thick edge, and matches the board-as-Space decision). A thin WebView2 shell is optional if
 you want a desktop feel; native GUI-driving (Studio 5000 / FactoryTalk with no API) is a *worker
 capability*, not a cockpit concern.
 
@@ -206,7 +206,7 @@ capability*, not a cockpit concern.
 - **Temporal replay.** The append-only event log makes the board *scrubbable* — replay how a
   deliverable reached the gate and which critic flipped when. Timelines become a replay, not a list.
 - **Scope & locale.** The cockpit is per-board-scoped (RLS); switching client re-scopes everything.
-  It is served per deployment, so a thick/air-gapped edge runs its own cockpit with no mothership.
+  It is served per deployment, so a thick edge runs its own cockpit with no mothership.
 
 **The cockpit's one KPI is time-to-confident-approval.** You are the gate, so the human is the
 system's rate-limiter *by design*. The surface optimizes how fast you reach a *trustworthy* yes/no —
@@ -223,8 +223,10 @@ review for low-risk deliverables — not agent observability.
   across all clients.
 - **Edges (per client):** client-dependent.
   - *Thin edge* (data may leave): claims tasks, forwards heavy analysis to the mothership.
-  - *Thick edge* (air-gapped): runs analysis locally; data never leaves. **Acme is thick** —
-    its isolated workstation runs the DeepSeek API on its own line.
+  - *Thick edge* (on-premises analysis): runs analysis locally on a dedicated network line.
+    **Acme is thick** — its isolated workstation runs the DeepSeek API on its own line.
+    Note: model inference egresses to hosted API endpoints; "thick" refers to local execution and
+    live-processor write isolation, not network air-gap. See ADR-017.
 - **Sync** over Tailscale: edges push only non-sensitive coordination state up.
 - **Isolation:** `board_id` + Postgres Row-Level Security; boards are the hard boundary, tenants soft.
 - **Long-task resilience:** workers write **checkpoint events** to the log; on re-claim they resume

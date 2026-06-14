@@ -28,8 +28,9 @@ between already-chosen pieces live in `docs/integration/01_conflicts_and_resolut
 | [014](ADR-014-consolidation-boundaries.md) | Consolidation boundaries — autonomous within one client scope; cross-scope MERGE forbidden | Accepted |
 | [015](ADR-015-phase-reorder.md) | Phase reorder — gate + critics before the full dispatcher | Accepted |
 | [016](ADR-016-dag-driven-project-scheduling.md) | DAG-driven project scheduling — board, Gantt, and dispatcher are one system | Proposed |
+| [017](ADR-017-data-egress-residency.md) | Data-egress and residency — hosted model endpoints, not air-gapped | Accepted |
 
 > **On the numbering:** the **PageRank context map** (`BLUEPRINT.md` §175–178) is named in BLUEPRINT's
 > "to formalize next" list but was deliberately **not** assigned an ADR number — CR-10 flags it for
-> folding into ADR-003 or a future dedicated PageRank ADR. The 001–016 sequence therefore has no gap;
-> no ADR was skipped.
+> folding into ADR-003 or a future dedicated PageRank ADR. ADR-017 was added 2026-06-14 to resolve the
+> RT-07 air-gap contradiction (data-egress/residency decision).

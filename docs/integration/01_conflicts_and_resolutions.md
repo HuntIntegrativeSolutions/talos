@@ -39,7 +39,7 @@
 | CR-05 | Agent Zero "verified solutions" vs TALOS "verified = gated" | MEDIUM | RESOLVED | ADR-005, ADR-014 |
 | CR-06 | Learned (LLM) critics vs "the gate is pure / deterministic" | HIGH | RESOLVED | ADR-011, critics contract |
 | CR-07 | Graphiti contradiction-invalidation vs NEXUS system-of-record | HIGH | RESOLVED | ADR-003, nexus-federation |
-| CR-08 | Graphiti on the **same** Neo4j as NEXUS vs federation | HIGH | **NEEDS-HUMAN-DECISION** | nexus-federation, ADR-003 |
+| CR-08 | Graphiti on the **same** Neo4j as NEXUS vs federation | HIGH | **RESOLVED** | nexus-federation, ADR-003 |
 | CR-09 | Episodic autonomous writes vs "ground-truth writes pass the gate" | HIGH | RESOLVED | ADR-014, ADR-003 |
 | CR-10 | Aider NetworkX (<500 nodes) vs 127 k-entry NEXUS graph | MEDIUM | RESOLVED / NEEDS-PROTOTYPE | ADR-003 (+ PageRank ADR) |
 | CR-11 | PageRank seeding leak across a shared NEXUS graph | HIGH | RESOLVED | ADR-001, capability-manifest |
@@ -47,7 +47,7 @@
 | CR-13 | Gate-bound evaluator self-advance vs stop-at-gate (fail-closed) | HIGH | RESOLVED | ADR-006, ADR-004, capability-manifest |
 | CR-14 | OpenLumara **GPL-3.0** vs TALOS **MIT** | CRITICAL | RESOLVED | new license-policy ADR |
 | CR-15 | GitHub Agentic Workflows — license unstated | MEDIUM | **NEEDS-HUMAN-DECISION** | new license-policy ADR |
-| CR-16 | Emulate 5000: no download API + UDT privilege violations | HIGH | RESOLVED (safety) / **NEEDS-HUMAN-DECISION** (path) | ADR-004, ADR-007, capability-manifest, critics |
+| CR-16 | Emulate 5000: no download API + UDT privilege violations | HIGH | **RESOLVED** | ADR-004, ADR-007, capability-manifest, critics |
 | CR-17 | DOX soft (prose) enforcement vs structural safety | MEDIUM | RESOLVED | DOX/AGENTS.md convention (test) |
 | CR-18 | NEXUS findings lifecycle (confirmed-only) vs TALOS task gate | MEDIUM | RESOLVED | capability-manifest, ADR-011, nexus-federation |
 | CR-19 | Proactive cron turns + unsandboxed gateway vs no-autonomous-write | HIGH | RESOLVED | ADR-009 |
@@ -249,14 +249,15 @@ landing point at the four hot boundaries (MCP, gate, memory, isolation).
     federation/security boundary; makes CR-07 structural. *Con:* cross-links between episodic and NEXUS
     structural nodes become *logical* references resolved at query time (and PageRank spans two
     stores), not in-graph edges — the note's `add_triplet()` bootstrapping no longer applies as drawn.
-- **Resolution (NEEDS-HUMAN-DECISION; recommend (b)).** Recommend **(b)** to keep the MCP boundary
-  load-bearing and to make "NEXUS is system-of-record" physically true, accepting the cross-store
-  cost. This must be **escalated**: it pins the `nexus-federation` contract (does NEXUS expose its
-  graph as an attachable Neo4j, or as MCP tools only?), it depends on what NEXUS actually stores
-  (SQLite today), and the upstream note's entire cross-link design assumes (a). Do not silently adopt
-  the note's co-location default.
+- **Resolution (RESOLVED — option b chosen 2026-06-14).** **Separate TALOS Neo4j + NEXUS read-through
+  over MCP.** TALOS owns its own Neo4j instance for Graphiti episodic/knowledge data; NEXUS structural
+  facts are read through NEXUS MCP tools only — TALOS never writes to or holds credentials for a
+  Neo4j instance containing NEXUS data. This keeps the MCP boundary load-bearing and makes
+  "NEXUS is system-of-record" physically enforced (not just policy). Cross-links between TALOS
+  episodic nodes and NEXUS structural facts are logical references resolved at query time; the upstream
+  note's `add_triplet()` bootstrapping is not adopted as drawn. ADR-003 carries this.
 - **Touches.** `nexus-federation` contract, ADR-003.
-- **Confidence.** **NEEDS-HUMAN-DECISION.**
+- **Confidence.** **RESOLVED.**
 
 ### CR-09 — Episodic autonomous writes vs "ground-truth writes pass the gate"
 
@@ -408,7 +409,7 @@ landing point at the four hot boundaries (MCP, gate, memory, isolation).
   Path B (BOOL-forcing via L5X analysis — native Python, *fragile*, mapping not 1:1); Path C (modify
   the ACD to expose UDT internals as BOOLs — auditable, reversible, but *"must be verified against the
   original to ensure test-mode doesn't mask real faults"*).
-- **Resolution (RESOLVED on safety / NEEDS-HUMAN-DECISION on path).** **Safety (RESOLVED):** the
+- **Resolution (RESOLVED — safety + path decided 2026-06-14).** **Safety (RESOLVED):** the
   emulator is a **NEXUS-side simulation target**, the same class as the OpenPLC sandbox that *"sits
   between 'write (offline)' and 'human deploys'"* (`BLUEPRINT.md` §133-137). pylogix writes to it are
   **offline/sim writes** under the write profile — gated, capped at *"any offline/sim write ≤1"* with
@@ -416,13 +417,15 @@ landing point at the four hot boundaries (MCP, gate, memory, isolation).
   **network-isolated from any live processor**, and a deterministic critic must **verify the target IP
   is the emulator**, not a real controller — this keeps "no agent writes to a live system" intact.
   Path C additionally requires an **original-vs-modified diff critic** so test-mode logic can't mask a
-  real fault. **Path selection (A vs B vs C) and the Logix Echo SDK licensing cost is a
-  cost/capability call for the human** (the note recommends C for the UDT gap, A for download if cost
-  is acceptable, B as a fallback).
+  real fault. **Path selection (RESOLVED 2026-06-14):** TALOS uses a **dual-track approach**:
+  (1) **NEXUS** handles program structure reading over MCP (NEXUS reads the program, TALOS consumes
+  the output contract per ADR-007); (2) **pylogix** reads live structure from Emulate 5000 once a
+  connection is established — active testing underway; (3) **Logix Echo SDK** included for full UDT
+  access and download where needed. This is a complete documentation + skills + hooks package.
 - **Touches.** ADR-004 (write profile = sim target, define the IP-verification critic), ADR-007
-  (parser ownership — Path C injects bypass rungs via the NEXUS L5X parser), `capability-manifest`
-  (the PLC-test capability), critics (target-IP-is-emulator; modified-vs-original diff).
-- **Confidence.** RESOLVED (safety) / **NEEDS-HUMAN-DECISION** (path & licensing).
+  (parser ownership — NEXUS owns program-structure parsing; TALOS couples to the output contract),
+  `capability-manifest` (the PLC-test capability), critics (target-IP-is-emulator; modified-vs-original diff).
+- **Confidence.** **RESOLVED.**
 
 ### CR-17 — DOX soft (prose) enforcement vs structural safety
 
@@ -623,9 +626,9 @@ contract/ADR is frozen.
 
 | ID | Decision required | Why it can't be auto-resolved | Blocks |
 | :--- | :--- | :--- | :--- |
-| **CR-08** | Physical graph topology: **one shared Neo4j** with label-scoped roles, **or** separate TALOS Neo4j + NEXUS read-through over MCP. | The upstream "NEXUS Coexistence Contract" assumes co-location, which collides with ADR-001/003 federation; NEXUS's real store is SQLite today. Co-location trades away the MCP write-boundary. | `nexus-federation` contract; CR-07's structural guarantee. **Recommend: separate (option b).** |
+| **CR-08** | ~~Physical graph topology: one shared Neo4j or separate TALOS Neo4j + NEXUS read-through over MCP.~~ | **RESOLVED 2026-06-14.** Separate TALOS Neo4j chosen (option b). | Closed. |
 | **CR-15** | Confirm the **GitHub Agentic Workflows license** before reusing any gh-aw code. | The note doesn't state the license; vendorability is unknown. Must not be invented. | The license/dependency-policy ADR; any direct code reuse. |
-| **CR-16** | Choose the Rockwell test **path A / B / C** and decide on **Logix Echo SDK licensing cost**. | A cost-vs-capability business call; the safety envelope is resolved but the capability path is not. | The PLC-test capability in `capability-manifest`; ADR-004/ADR-007. |
+| **CR-16** | ~~Choose the Rockwell test path A / B / C and decide on Logix Echo SDK licensing cost.~~ | **RESOLVED 2026-06-14.** Dual-track: NEXUS (MCP) + pylogix + Logix Echo SDK. Complete documentation + skills + hooks package. | Closed. |
 
 **Also needs prototyping before the dependent piece is trusted (NEEDS-PROTOTYPE):**
 
