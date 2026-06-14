@@ -62,19 +62,54 @@ See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for the full design and
 
 ## Status
 
-**Pre-alpha.** The architecture and the board schema land first (see
-[`engine/schema.sql`](engine/schema.sql)); the engine port and the web view follow. Not yet runnable.
+**Pre-alpha · P0 + P1 + P2 complete.**
+
+The schema, contracts, critics registry, and five-outcome human-review gate are implemented
+and tested. The full distributed dispatcher (P3), memory federation (P4), sim-execute (P6),
+web cockpit (P7), and gateway (P8) have not been built yet.
+
+What is runnable today:
+- `platform/validators/` — capability-manifest validator (P0)
+- `platform/critics/` — deterministic gate critics and registry (P2)
+- `platform/graph/spine.py` — 4-node LangGraph spine with five-outcome gate (P1/P2)
+- `platform/worker.py` — single-worker claim loop (P1, no dispatcher yet)
+- `platform/api.py` — FastAPI board API with full gate endpoint (P1/P2)
+
+## Quick start
+
+Requires Python 3.11+ and Docker (tests spin up Postgres 16 via testcontainers).
+
+```bash
+git clone git@github.com:HuntIntegrativeSolutions/talos.git
+cd talos
+python -m venv .venv && source .venv/bin/activate
+pip install -e ".[test]"
+TALOS_NEXUS_STUB=1 python -m pytest platform/ -v
+```
 
 ## Repo layout
 
 ```
-engine/    board source of truth (Postgres) + task lifecycle
-web/       Space Agent view layer (the board, rendered as a Space)
-critics/   deterministic review-gate functions
-gateway/   sandboxed proactive loops + notifications
-memory/    polyglot memory adapters
-docs/      architecture + decision records (ADRs)
-assets/    mascot + brand
+platform/      Implemented Python modules
+  critics/     Deterministic gate critics and registry (P2)
+  graph/       LangGraph spine with five-outcome gate (P1/P2)
+  validators/  Capability-manifest validator (P0)
+  tests/       27 integration + unit tests (P0–P2)
+  worker.py    Single-worker claim loop (P1)
+  api.py       FastAPI board API (P1/P2)
+engine/        Postgres schema (schema.sql + schema-additions.sql + schema-p2.sql)
+web/           Placeholder — Space Agent cockpit (not built)
+gateway/       Placeholder — sandboxed proactive loops (not built)
+memory/        Placeholder — polyglot memory adapters (not built)
+docs/
+  ARCHITECTURE.md        High-level system overview
+  decisions/             ADR-001 through ADR-017 — binding design decisions
+  contracts/             Four frozen seam contracts
+  integration/           Reconciliation documents (integration map, build sequence, red-team)
+  upstream/              Notes from upstream harnesses studied during design
+BLUEPRINT.md   Authoritative living design document (v0.6)
+ROADMAP.md     Phase-ordered research and documentation roadmap
+assets/        Brand assets (emblem, etc.)
 ```
 
 ## License

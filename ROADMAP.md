@@ -341,12 +341,20 @@ Ideas → evaluated → either formalized into an ADR or marked deferred. Nothin
 
 ## Immediate next actions
 
-1. [ ] Generate mascot images from the Gemini prompts → drop into `assets/`
-2. [ ] `git init` in this directory, initial commit with the scaffold
-3. [ ] Write ADR-004 (capability profiles) — this one unlocks the NEXUS integration language
-4. [ ] Write ADR-007 (parser ownership) — closes the "just let TALOS read the L5X" debate permanently
-5. [ ] Start `docs/upstream/hermes-notes.md` — dispatcher loop and heartbeat details are needed
-       before Phase 0 board implementation begins
+P0, P1, and P2 are complete. The core gate is implemented and tested (27 tests passing).
+The repo is live at `github.com/HuntIntegrativeSolutions/talos.git`.
+
+**Next engineering phase:** P3 — Full Distributed Dispatcher.
+See `docs/integration/04_build_sequence.md` for the full dependency-ordered build sequence.
+
+P3 deliverables (planned across sub-phases):
+- **P3a** — PostgresSaver + reclaim reconciliation (replace MemorySaver; RT-20)
+- **P3b** — DAG-priority dispatcher, heartbeat, multi-writer reducers (RT-04, RT-10, RT-21)
+- **P3c** — Docker sandbox (`network:none`, `readOnlyRoot` per ADR-010; RT-27, RT-28)
+- **P3d** — ADR-016 PM hooks + severity-gated escalator + snapshot/rollback
+
+Before P3 begins: resolve open customizability questions (model selection, memory backend
+flexibility) via an interview session — results become new ADRs.
 
 ---
 
