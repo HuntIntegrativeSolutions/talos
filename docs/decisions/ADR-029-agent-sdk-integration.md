@@ -192,8 +192,8 @@ via a hook, since hooks don't fire on raw inference. `SystemMessage` carries ses
 
 ## Action items
 
-1. [ ] If Q1=SAFE: add `sdk_session_ids: dict` to `SpineState` (optional, default `{}`).
-2. [ ] If Q1=SAFE: implement `read_node` and `deliverable_node` using `query()` at P3b.
-3. [ ] Attach `PreToolUse`/`PostToolUse` hooks for NEXUS tool spans (ADR-022 P3b instrumentation).
-4. [ ] Wire `llm.call` span as timing wrapper around `query()` call entry/exit.
-5. [ ] If Q5 shows orphaned processes: add explicit subprocess cleanup or verify `async for` drains.
+1. [x] If Q1=SAFE: add `sdk_session_ids: dict` to `SpineState` (optional, default `{}`). — **Done in P3b** (`talos/graph/spine.py`)
+2. [x] If Q1=SAFE: implement `read_node` and `deliverable_node` using `query()` at P3b. — **Done in P3b** (stub guard preserved for CI via `TALOS_NEXUS_STUB=1`)
+3. [ ] Attach `PreToolUse`/`PostToolUse` hooks for NEXUS tool spans (ADR-022 P3b instrumentation). — deferred to P4 (NEXUS tool calls not yet live)
+4. [x] Wire `llm.call` span as timing wrapper around `query()` call entry/exit. — **Done in P3d** (`talos/llm.py` + `talos/spans.py`)
+5. [ ] If Q5 shows orphaned processes: add explicit subprocess cleanup or verify `async for` drains. — not yet triggered; revisit at P4

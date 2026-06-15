@@ -35,6 +35,7 @@ SCHEMA_FILES = [
     str(_REPO_ROOT / "engine" / "schema.sql"),
     str(_REPO_ROOT / "engine" / "schema-additions.sql"),
     str(_REPO_ROOT / "engine" / "schema-p2.sql"),
+    str(_REPO_ROOT / "engine" / "schema-p3.sql"),
 ]
 
 

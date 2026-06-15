@@ -16,17 +16,22 @@ app = [
     "fastapi",
     "uvicorn[standard]",
     "psycopg2-binary",
+    "psycopg[binary]",
     "langgraph>=0.2",
     "langgraph-checkpoint-postgres",
+    "requests",
 ]
 test = [
     "pytest",
     "pytest-asyncio",
     "psycopg2-binary",
+    "psycopg[binary]",
     "testcontainers[postgres]",
     "httpx",
     "fastapi",
     "langgraph>=0.2",
+    "langgraph-checkpoint-postgres",
+    "requests",
 ]
 experiment = [
     "claude-agent-sdk",
