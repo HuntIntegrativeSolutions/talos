@@ -13,8 +13,8 @@ import psycopg2.extras
 import pytest
 from fastapi.testclient import TestClient
 
-from platform.critics.citations_resolvable import CriticResult, citations_resolvable
-from platform.graph.spine import post_gate_node, read_node
+from talos.critics.citations_resolvable import CriticResult, citations_resolvable
+from talos.graph.spine import post_gate_node, read_node
 
 
 # ---------------------------------------------------------------------------
@@ -72,7 +72,7 @@ def test_spine_happy_path(pg_setup, admin_conn, test_graph):
 
     # Run the worker under the NEXUS stub — graph pauses at gate_node.
     os.environ["TALOS_NEXUS_STUB"] = "1"
-    from platform.worker import claim_and_run
+    from talos.worker import claim_and_run
 
     session_key = claim_and_run(board_id, task_id, graph=test_graph)
 
@@ -81,7 +81,7 @@ def test_spine_happy_path(pg_setup, admin_conn, test_graph):
     assert task["status"] == "review", f"expected review, got {task['status']}"
 
     # Simulate human approval via the gate API.
-    from platform import api as api_module
+    from talos import api as api_module
     client = TestClient(api_module.app)
 
     resp = client.post(
@@ -149,8 +149,8 @@ def test_gate_rejects_non_human_caller(pg_setup, admin_conn, test_graph):
     _seed_board_and_task(admin_conn, board_id, task_id)
 
     os.environ["TALOS_NEXUS_STUB"] = "1"
-    from platform.worker import claim_and_run
-    from platform import api as api_module
+    from talos.worker import claim_and_run
+    from talos import api as api_module
 
     claim_and_run(board_id, task_id, graph=test_graph)
 

@@ -18,7 +18,7 @@ import psycopg2
 from fastapi import FastAPI, Header, HTTPException
 from pydantic import BaseModel
 
-from platform.db import board_scope, get_conn
+from talos.db import board_scope, get_conn
 
 app = FastAPI(title="TALOS Board API")
 
@@ -34,7 +34,7 @@ def set_graph(g) -> None:
 
 def _get_graph():
     if _graph is None:
-        from platform.graph.spine import build_graph
+        from talos.graph.spine import build_graph
         set_graph(build_graph())
     return _graph
 

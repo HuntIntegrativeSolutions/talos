@@ -12,9 +12,9 @@ from __future__ import annotations
 
 import pytest
 
-import platform.critics.registry as reg_module
-from platform.critics.citations_resolvable import CriticResult
-from platform.critics.registry import CriticSpec
+import talos.critics.registry as reg_module
+from talos.critics.citations_resolvable import CriticResult
+from talos.critics.registry import CriticSpec
 
 
 @pytest.fixture()

@@ -1,4 +1,4 @@
-from platform.critics.contradiction_filter import filter_contradictions
+from talos.critics.contradiction_filter import filter_contradictions
 
 
 def test_dedup_same_finding_keeps_most_recent():

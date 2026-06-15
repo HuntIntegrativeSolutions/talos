@@ -6,7 +6,7 @@ import unittest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 
-from platform.validators.capability_manifest import validate_manifest
+from talos.validators.capability_manifest import validate_manifest
 
 
 VALID_MANIFEST = {

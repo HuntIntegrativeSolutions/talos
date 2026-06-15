@@ -17,7 +17,7 @@ import psycopg2.extras
 import pytest
 from fastapi.testclient import TestClient
 
-from platform.critics.citations_resolvable import citations_resolvable
+from talos.critics.citations_resolvable import citations_resolvable
 
 
 # ---------------------------------------------------------------------------
@@ -78,10 +78,10 @@ def _gate(client, board_id, task_id, headers=None, **payload) -> object:
 # ---------------------------------------------------------------------------
 
 def test_meta_critic_safety_not_waivable():
-    from platform.critics.registry import CriticSpec, register
+    from talos.critics.registry import CriticSpec, register
 
     def _dummy(deliverable, nexus_client=None):
-        from platform.critics.citations_resolvable import CriticResult
+        from talos.critics.citations_resolvable import CriticResult
         return CriticResult(passed=True, reason="x")
 
     with pytest.raises(ValueError, match="waivable=False"):
@@ -100,8 +100,8 @@ def test_meta_critic_safety_not_waivable():
 
 def test_all_five_outcomes_write_correct_columns(pg_setup, admin_conn, test_graph):
     os.environ["TALOS_NEXUS_STUB"] = "1"
-    from platform import api as api_module
-    from platform.worker import claim_and_run
+    from talos import api as api_module
+    from talos.worker import claim_and_run
 
     client = TestClient(api_module.app)
 
@@ -128,7 +128,7 @@ def test_all_five_outcomes_write_correct_columns(pg_setup, admin_conn, test_grap
     assert task["rejected_by"] == "thunt"
     assert task["rejection_reason"] == "needs more detail"
     # Re-run post_gate_node — must be idempotent on rejected tasks.
-    from platform.graph.spine import post_gate_node
+    from talos.graph.spine import post_gate_node
     state = {
         "board_id": b, "task_id": t, "run_id": 0,
         "gate_outcome": "reject", "approved_by": "thunt",
@@ -248,7 +248,7 @@ def test_citations_resolvable_fail_closed_on_nexus_unavailable(pg_setup, admin_c
 # ---------------------------------------------------------------------------
 
 def test_contradiction_filter_dedupes_flood():
-    from platform.critics.contradiction_filter import filter_contradictions
+    from talos.critics.contradiction_filter import filter_contradictions
 
     base_time = 1000.0
     findings = [

@@ -1,4 +1,4 @@
-from platform.critics.citations_resolvable import citations_resolvable
+from talos.critics.citations_resolvable import citations_resolvable
 
 
 def test_confirmed_citation_passes():

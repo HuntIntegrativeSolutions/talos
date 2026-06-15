@@ -1,4 +1,4 @@
-from platform.critics.citations_resolvable import CriticResult
+from talos.critics.citations_resolvable import CriticResult
 
 
 def no_live_write_in_deliverable(deliverable: dict, nexus_client=None) -> CriticResult:

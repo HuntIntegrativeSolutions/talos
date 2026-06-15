@@ -19,6 +19,7 @@ Critical RLS note:
 from __future__ import annotations
 
 import os
+import pathlib
 
 import psycopg2
 import psycopg2.extras
@@ -27,10 +28,13 @@ from testcontainers.postgres import PostgresContainer
 
 from langgraph.checkpoint.memory import MemorySaver
 
+_HERE = pathlib.Path(__file__).resolve().parent
+_REPO_ROOT = _HERE.parent.parent
+
 SCHEMA_FILES = [
-    "/mnt/i/talos/engine/schema.sql",
-    "/mnt/i/talos/engine/schema-additions.sql",
-    "/mnt/i/talos/engine/schema-p2.sql",
+    str(_REPO_ROOT / "engine" / "schema.sql"),
+    str(_REPO_ROOT / "engine" / "schema-additions.sql"),
+    str(_REPO_ROOT / "engine" / "schema-p2.sql"),
 ]
 
 
@@ -138,8 +142,8 @@ def test_graph(pg_setup):
     worker.claim_and_run() and the API's submit_gate_outcome() must use the
     same graph instance — the MemorySaver holds checkpoint state in process.
     """
-    from platform.graph.spine import build_graph
-    from platform import api as api_module
+    from talos.graph.spine import build_graph
+    from talos import api as api_module
 
     graph = build_graph(MemorySaver())
     api_module.set_graph(graph)

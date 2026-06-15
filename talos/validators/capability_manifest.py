@@ -107,7 +107,7 @@ def validate_manifest(manifest: dict) -> ValidationResult:
 
 if __name__ == "__main__":
     if len(sys.argv) != 2:
-        print("Usage: python -m platform.validators.capability_manifest <manifest.json>")
+        print("Usage: python -m talos.validators.capability_manifest <manifest.json>")
         sys.exit(2)
 
     path = sys.argv[1]

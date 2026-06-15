@@ -11,8 +11,8 @@ reclaim, multi-worker coordination. Those are P3.
 
 from __future__ import annotations
 
-from platform.db import board_scope, get_conn
-from platform.graph.spine import SpineState, build_graph
+from talos.db import board_scope, get_conn
+from talos.graph.spine import SpineState, build_graph
 
 
 def claim_and_run(board_id: str, task_id: str, graph=None) -> str:

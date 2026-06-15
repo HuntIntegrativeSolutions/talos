@@ -19,8 +19,8 @@ from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import END, START, StateGraph
 from langgraph.types import interrupt
 
-from platform.critics.registry import run_all as run_all_critics
-from platform.db import board_scope, get_conn
+from talos.critics.registry import run_all as run_all_critics
+from talos.db import board_scope, get_conn
 
 
 class SpineState(TypedDict):

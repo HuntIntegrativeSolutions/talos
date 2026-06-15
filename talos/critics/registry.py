@@ -60,8 +60,8 @@ def run_all(deliverable: dict, nexus_client=None) -> list[dict]:
 # P2 starter registry — registered at module load; imported by deliverable_node
 # ---------------------------------------------------------------------------
 
-from platform.critics.citations_resolvable import citations_resolvable  # noqa: E402
-from platform.critics.no_live_write import no_live_write_in_deliverable  # noqa: E402
+from talos.critics.citations_resolvable import citations_resolvable  # noqa: E402
+from talos.critics.no_live_write import no_live_write_in_deliverable  # noqa: E402
 
 register(CriticSpec(
     name="citations_resolvable",
