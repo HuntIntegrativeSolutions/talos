@@ -28,3 +28,6 @@ test = [
     "fastapi",
     "langgraph>=0.2",
 ]
+experiment = [
+    "claude-agent-sdk",
+]

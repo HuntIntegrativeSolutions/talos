@@ -4,13 +4,14 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project status
 
-**Pre-alpha, P1 complete, P2 complete.** TALOS is an agent harness for industrial and business operations. The engine port and web view have not been built. Runnable code:
-- `platform/validators/` — capability-manifest validator (P0)
-- `platform/critics/` — deterministic gate critics and registry (P2)
-- `platform/graph/spine.py` — 4-node LangGraph spine with five-outcome gate (P1/P2)
-- `platform/worker.py` — single-worker claim loop (P1, no dispatcher)
-- `platform/api.py` — FastAPI board API with full gate endpoint (P1/P2)
-- `platform/tests/` — 6 P1 spine tests + 4 P2 gate tests + critic unit tests
+**Pre-alpha, P0 + P1 + P2 complete.** TALOS is an agent harness for industrial and business operations. The engine port and web view have not been built. Runnable code:
+- `talos/validators/` — capability-manifest validator (P0)
+- `talos/critics/` — deterministic gate critics and registry (P2)
+- `talos/graph/spine.py` — 4-node LangGraph spine with five-outcome gate (P1/P2)
+- `talos/worker.py` — single-worker claim loop (P1, no dispatcher)
+- `talos/api.py` — FastAPI board API with full gate endpoint (P1/P2)
+- `talos/tests/` — 6 P1 spine tests + 4 P2 gate tests + critic unit tests
+- `talos/experiments/` — Agent SDK prototype (ADR-029)
 
 ## Running tests
 
@@ -18,22 +19,22 @@ Tests require Docker (testcontainers spins up Postgres 16).
 
 Run all tests:
 ```bash
-.venv/bin/python -m pytest platform/ -v
+TALOS_NEXUS_STUB=1 .venv/bin/python -m pytest talos/ -v
 ```
 
 Run P1 spine tests only:
 ```bash
-.venv/bin/python -m pytest platform/tests/test_spine.py -v
+.venv/bin/python -m pytest talos/tests/test_spine.py -v
 ```
 
 Run P2 gate tests only:
 ```bash
-.venv/bin/python -m pytest platform/tests/test_p2_gate.py -v
+.venv/bin/python -m pytest talos/tests/test_p2_gate.py -v
 ```
 
 Validate a capability manifest JSON file:
 ```bash
-python -m platform.validators.capability_manifest <path/to/manifest.json>
+python -m talos.validators.capability_manifest <path/to/manifest.json>
 ```
 
 There is no build system, Docker setup, or server to start yet. `web/`, `gateway/`, and `memory/` contain only documentation and schema files.
@@ -42,16 +43,17 @@ There is no build system, Docker setup, or server to start yet. `web/`, `gateway
 
 ```
 engine/        Postgres schema (schema.sql + schema-additions.sql + schema-p2.sql)
-platform/      Python modules; critics/, graph/, worker, api, tests all implemented
+talos/         Python modules; critics/, graph/, validators/, worker, api, tests all implemented
+  experiments/ Agent SDK × LangGraph prototype (ADR-029)
 web/           Placeholder — Space Agent cockpit (not built)
 gateway/       Placeholder — sandboxed proactive loops (not built)
 memory/        Placeholder — polyglot memory adapters (not built)
 docs/
   ARCHITECTURE.md          High-level system overview
-  decisions/               ADR-001 through ADR-017 — binding design decisions
+  decisions/               ADR-001 through ADR-029 — binding design decisions
   contracts/               Four frozen seam contracts (board-api, capability-manifest, nexus-federation, widget-sandbox)
   integration/             Five reconciliation documents (integration map, conflicts, unified architecture, red-team, build sequence)
-  upstream/                Notes from five upstream harnesses studied before design
+  upstream/                Research notes (harness studies, Agent SDK, Omnigent, Dreaming, PLC connectivity)
 BLUEPRINT.md               The authoritative living design document (v0.6)
 ROADMAP.md                 Phase-ordered roadmap
 ```
@@ -72,7 +74,7 @@ This doctrine is structural, not advisory. It is enforced by two hard boundaries
 |---|---|---|
 | Cockpit (view) | `web/` | Web Space Agent board — consumes engine via board-api only; never touches DB |
 | Board engine | `engine/` | Postgres source of truth: tasks, DAG, event log, gate, spaces/widgets |
-| Critics | `critics/` | Deterministic gate functions (verdict: pass/fail/warn); safety critics are escalate-only, never waivable |
+| Critics | `talos/critics/` | Deterministic gate functions (verdict: pass/fail/warn); safety critics are escalate-only, never waivable |
 | Orchestration | — | Strategy Ladder: triage → research → plan → gate → execute → crystallize |
 | Memory | `memory/` | Four stores: Postgres (SoR), Neo4j (graph, federated from NEXUS), pgvector/Chroma (vector), Redis (hot) |
 | Gateway | `gateway/` | Sandboxed cron/proactive loops; may notify/propose, never approve |
@@ -94,7 +96,7 @@ Key tables:
 RLS: every board-scoped table has two policies — `board_isolation` (using `current_setting('app.board_id', true)`) and `admin_bypass` (for `talos_admin`). Cross-`board_id` reads return 0 rows by design.
 
 ### Capability manifest contract
-`docs/contracts/capability-manifest.md` defines the frozen JSON contract every capability pack must publish before attaching behind MCP. The validator at `platform/validators/capability_manifest.py` enforces it deterministically (no LLM, no network).
+`docs/contracts/capability-manifest.md` defines the frozen JSON contract every capability pack must publish before attaching behind MCP. The validator at `talos/validators/capability_manifest.py` enforces it deterministically (no LLM, no network).
 
 Key rules baked into the validator:
 - `profile` must be `read` or `write`; unknown = treated as `write`, fail-closed
@@ -110,7 +112,7 @@ Full detail is in `docs/integration/04_build_sequence.md`.
 
 ## Design decisions
 
-All binding decisions are in `docs/decisions/` as ADRs (ADR-001 through ADR-017). Before proposing changes to any design boundary, check whether an ADR already governs it. The four frozen contracts in `docs/contracts/` define the seams between major components and must not be changed unilaterally.
+All binding decisions are in `docs/decisions/` as ADRs (ADR-001 through ADR-029). Before proposing changes to any design boundary, check whether an ADR already governs it. The four frozen contracts in `docs/contracts/` define the seams between major components and must not be changed unilaterally.
 
 Critical ADRs to know:
 - **ADR-001** — TALOS is a platform; NEXUS is a capability behind MCP (not merged)
@@ -121,3 +123,11 @@ Critical ADRs to know:
 - **ADR-011** — Five gate outcomes: Approve / Reject-with-reason / Waive-with-justification / Edit-inline / Escalate
 - **ADR-015** — Phase reorder (gate + critics before full distributed dispatcher)
 - **ADR-016** — DAG-driven project scheduling (the schema-additions.sql PM layer)
+- **ADR-018** — Per-ladder-step model mapping (6 slots × primary+fallback); cascade: talos.toml → boards → tasks
+- **ADR-019** — Postgres hard requirement everywhere; PostgresSaver injected at worker startup
+- **ADR-020** — Heartbeat and reclaim thresholds (TALOS_HEARTBEAT_INTERVAL_S, TALOS_RECLAIM_AFTER_MISSES)
+- **ADR-021** — Verifier critic type; advisory:bool field; safety_class verifiers must be advisory=True
+- **ADR-022** — Observability: span-level tracing, task_spans table, RLS, webhook on gate escalation
+- **ADR-023** — Rule extraction in Crystallize: factual/procedural/project-context; gate for shared promotion
+- **ADR-024** — PLC connectivity: pylogix for initial read; nexus-logix fork of pycomm3 for P6 prep (NEXUS only)
+- **ADR-029** — Claude Agent SDK integration: complement pattern; query() safe in pre-gate nodes (empirically verified)
