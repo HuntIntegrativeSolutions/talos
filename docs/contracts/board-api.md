@@ -213,8 +213,14 @@ UI"). Concretely:
 3. **Scope of the first freeze** — is `getGantt`/`v_critical_path` in `board-api/v1`, or an additive
    `v1.x`? `v_critical_path`'s full backward pass is itself marked "Phase 2" in
    `schema-additions.sql` (lines 175-177), so the Gantt projection may stabilize after the core reads.
-4. **Service (non-human) callers** — exactly which read operations the gateway/cron layer may call
-   (it may *propose*/notify, never approve); needs the gateway-design pass (ROADMAP Phase 4).
+4. **Service (non-human) callers** — ~~exactly which read operations the gateway/cron layer may call~~
+   **CLOSED by ADR-036 / RT-01.** The `X-Human-Session` header must carry a valid TALOS JWT with
+   `token_class: "human"` (signed with `TALOS_JWT_SECRET`, HMAC-HS256). The engine rejects anything
+   else with HTTP 403 `{"error": "human session required"}`. Gateway/cron callers may never hold a
+   `token_class: "human"` token; they may propose/notify, never approve. Per-read-operation
+   authorization for non-human callers (gateway/cron) is deferred to a later phase (ROADMAP P4+).
+   The `actor` field in illustrative gate-outcome envelopes is the JWT `sub` claim extracted
+   server-side — it is never a field the caller supplies in the request body.
 5. **Read-projection column allowlist** — exactly which `tasks` columns the view may read. The spec
    *recommends* a least-privilege projection that hides worker/credential bookkeeping (`claim_lock`,
    `worker_pid`, `session_id`, `idempotency_key`, `model_override`, `last_failure_error`), but **no

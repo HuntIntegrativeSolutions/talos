@@ -65,7 +65,7 @@ def _count_rows(admin_conn, table: str, task_id: str, **extra_filters) -> int:
 # Test 1: full happy path
 # ---------------------------------------------------------------------------
 
-def test_spine_happy_path(pg_setup, admin_conn, test_graph):
+def test_spine_happy_path(pg_setup, admin_conn, test_graph, human_jwt):
     board_id = f"b-{uuid.uuid4().hex[:8]}"
     task_id = f"t-{uuid.uuid4().hex[:8]}"
     _seed_board_and_task(admin_conn, board_id, task_id)
@@ -87,7 +87,7 @@ def test_spine_happy_path(pg_setup, admin_conn, test_graph):
     resp = client.post(
         f"/boards/{board_id}/tasks/{task_id}/gate",
         json={"outcome": "approve"},
-        headers={"X-Human-Session": "thunt"},
+        headers={"X-Human-Session": human_jwt},
     )
     assert resp.status_code == 200, resp.text
     assert resp.json()["approved_by"] == "thunt"
@@ -143,7 +143,7 @@ def test_nexus_stub_read(pg_setup, admin_conn):
 # Test 3: gate endpoint rejects non-human callers
 # ---------------------------------------------------------------------------
 
-def test_gate_rejects_non_human_caller(pg_setup, admin_conn, test_graph):
+def test_gate_rejects_non_human_caller(pg_setup, admin_conn, test_graph, human_jwt):
     board_id = f"b-{uuid.uuid4().hex[:8]}"
     task_id = f"t-{uuid.uuid4().hex[:8]}"
     _seed_board_and_task(admin_conn, board_id, task_id)
@@ -151,6 +151,8 @@ def test_gate_rejects_non_human_caller(pg_setup, admin_conn, test_graph):
     os.environ["TALOS_NEXUS_STUB"] = "1"
     from talos.worker import claim_and_run
     from talos import api as api_module
+    import jwt as _jwt_lib
+    import os as _os
 
     claim_and_run(board_id, task_id, graph=test_graph)
 
@@ -161,24 +163,38 @@ def test_gate_rejects_non_human_caller(pg_setup, admin_conn, test_graph):
     resp = client.post(gate_url, json={"outcome": "approve"})
     assert resp.status_code == 403, resp.text
 
-    # Blocked session values → 403
-    for bad_session in ("worker", "agent", "service", "system"):
-        resp = client.post(
-            gate_url,
-            json={"outcome": "approve"},
-            headers={"X-Human-Session": bad_session},
-        )
-        assert resp.status_code == 403, f"expected 403 for session {bad_session!r}"
-
-    # Legitimate human session → 200
+    # Invalid JWT string → 403
     resp = client.post(
         gate_url,
         json={"outcome": "approve"},
-        headers={"X-Human-Session": "thunt"},
+        headers={"X-Human-Session": "not.a.valid.jwt"},
+    )
+    assert resp.status_code == 403, "expected 403 for malformed JWT"
+
+    # Service-class JWT (not human) → 403
+    from datetime import datetime, timedelta, timezone
+    _secret = _os.environ["TALOS_JWT_SECRET"]
+    _now = datetime.now(timezone.utc)
+    service_token = _jwt_lib.encode(
+        {"sub": "svc", "token_class": "service", "iat": _now, "exp": _now + timedelta(hours=1)},
+        _secret, algorithm="HS256",
+    )
+    resp = client.post(
+        gate_url,
+        json={"outcome": "approve"},
+        headers={"X-Human-Session": service_token},
+    )
+    assert resp.status_code == 403, "expected 403 for service-class JWT"
+
+    # Legitimate human JWT → 200
+    resp = client.post(
+        gate_url,
+        json={"outcome": "approve"},
+        headers={"X-Human-Session": human_jwt},
     )
     assert resp.status_code == 200, resp.text
 
-    # approved_by must come from the header, not the request body.
+    # approved_by must come from the JWT sub claim, never self-asserted.
     task = _query_task(admin_conn, board_id, task_id)
     assert task["approved_by"] == "thunt"
 

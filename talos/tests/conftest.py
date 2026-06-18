@@ -21,6 +21,11 @@ from __future__ import annotations
 import os
 import pathlib
 
+# Must be set before talos.api (or anything importing it) is imported.
+# Tests run with TALOS_JWT_SECRET=test-secret-dev-only; this setdefault
+# is the fallback for bare `pytest` invocations without the env prefix.
+os.environ.setdefault("TALOS_JWT_SECRET", "test-secret-dev-only")
+
 import psycopg2
 import psycopg2.extras
 import pytest
@@ -31,12 +36,7 @@ from langgraph.checkpoint.memory import MemorySaver
 _HERE = pathlib.Path(__file__).resolve().parent
 _REPO_ROOT = _HERE.parent.parent
 
-SCHEMA_FILES = [
-    str(_REPO_ROOT / "engine" / "schema.sql"),
-    str(_REPO_ROOT / "engine" / "schema-additions.sql"),
-    str(_REPO_ROOT / "engine" / "schema-p2.sql"),
-    str(_REPO_ROOT / "engine" / "schema-p3.sql"),
-]
+_ALEMBIC_INI = str(_REPO_ROOT / "engine" / "alembic.ini")
 
 
 # ---------------------------------------------------------------------------
@@ -58,7 +58,10 @@ def pg_setup(pg_container):
     (from worker, api, spine nodes) connects to this container rather than
     falling back to postgresql://localhost/talos.
     """
-    admin_dsn = pg_container.get_connection_url().replace("+psycopg2", "")
+    # SQLAlchemy URL (postgresql+psycopg2://...) for Alembic.
+    sa_url = pg_container.get_connection_url()
+    # psycopg2 URL (postgresql://...) for direct psycopg2 connections.
+    admin_dsn = sa_url.replace("+psycopg2", "")
 
     # Expose the DSN to db.get_conn() before any test code runs.
     os.environ["TALOS_DB_DSN"] = admin_dsn
@@ -67,10 +70,28 @@ def pg_setup(pg_container):
     conn.autocommit = True
     cur = conn.cursor()
 
-    # Apply schema files in order.
-    for path in SCHEMA_FILES:
+    # Apply all schema files via raw psycopg2.  Alembic's command.upgrade()
+    # hangs when run in-process against a psycopg2 connection inside a
+    # testcontainers session (likely a thread-state / async interaction with
+    # SA 2.0's connection pooling).  Raw cursor execution is the proven path.
+    _SCHEMA_FILES = [
+        str(_REPO_ROOT / "engine" / "schema.sql"),
+        str(_REPO_ROOT / "engine" / "schema-additions.sql"),
+        str(_REPO_ROOT / "engine" / "schema-p2.sql"),
+        str(_REPO_ROOT / "engine" / "schema-p3.sql"),
+    ]
+    for path in _SCHEMA_FILES:
         with open(path) as f:
             cur.execute(f.read())
+
+    # Apply V0002 content directly (users table for JWT auth — ADR-036).
+    cur.execute("""
+        CREATE TABLE users (
+            username         TEXT PRIMARY KEY,
+            hashed_password  TEXT NOT NULL,
+            created_at       timestamptz NOT NULL DEFAULT now()
+        )
+    """)
 
     # Create talos_app as NOSUPERUSER so RLS applies to it.
     # The table owner (postgres) bypasses RLS; talos_app does not.
@@ -94,6 +115,14 @@ def pg_setup(pg_container):
 
     cur.close()
     conn.close()
+
+    # Stamp head so Alembic's version table reflects the full migration state
+    # without re-running any upgrade() functions.
+    from alembic.config import Config
+    from alembic import command as alembic_command
+    alembic_cfg = Config(_ALEMBIC_INI)
+    alembic_cfg.set_main_option("sqlalchemy.url", sa_url)
+    alembic_command.stamp(alembic_cfg, "head")
 
     yield admin_dsn
 
@@ -149,3 +178,19 @@ def test_graph(pg_setup):
     graph = build_graph(MemorySaver())
     api_module.set_graph(graph)
     return graph
+
+
+# ---------------------------------------------------------------------------
+# JWT test fixture (human token for gate tests)
+# ---------------------------------------------------------------------------
+
+@pytest.fixture(scope="session")
+def human_jwt(pg_setup):
+    """Create test user 'thunt' and return a valid human JWT for gate tests."""
+    from talos.auth.users import add_user
+    from talos.auth.tokens import issue_token
+    try:
+        add_user("thunt", "hunter2")
+    except Exception:
+        pass  # user already exists from a prior session fixture call
+    return issue_token("thunt", "hunter2")

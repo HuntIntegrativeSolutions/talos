@@ -5,22 +5,37 @@ Implements exactly the five read endpoints and the gate-outcome endpoint
 specified in docs/contracts/board-api.md. Nothing more.
 
 Gate POST enforces three doctrine rules:
-  RT-01: approved_by is always set from X-Human-Session header, never POST body.
+  RT-01: approved_by is set from the JWT sub claim in X-Human-Session; the
+         header must carry a validated TALOS JWT (token_class="human"), never
+         a plain string. (ADR-036)
   RT-02: critics must pass (all_required_pass=true) before a human can approve.
   RT-03: approved_at is set exclusively by post_gate_node, never by the API.
 """
 
 from __future__ import annotations
 
+import os
+from contextlib import asynccontextmanager
 from typing import Any
 
+import jwt as _jwt
 import psycopg2
 from fastapi import FastAPI, Header, HTTPException
 from pydantic import BaseModel
 
 from talos.db import board_scope, get_conn
 
-app = FastAPI(title="TALOS Board API")
+
+@asynccontextmanager
+async def _lifespan(app):
+    if not os.environ.get("TALOS_JWT_SECRET"):
+        raise RuntimeError(
+            "TALOS_JWT_SECRET is required. Set it before starting the server."
+        )
+    yield
+
+
+app = FastAPI(title="TALOS Board API", lifespan=_lifespan)
 
 # The compiled LangGraph graph. Tests inject a MemorySaver-backed instance;
 # production wires in a PostgresSaver-backed one via set_graph().
@@ -80,17 +95,32 @@ class PatchStatusRequest(BaseModel):
     status: str
 
 
+class LoginRequest(BaseModel):
+    username: str
+    password: str
+
+
 class GateOutcomeRequest(BaseModel):
     outcome: str
     reason: str | None = None         # required for reject
     justification: str | None = None  # required for waive and escalate
     new_deliverable: dict | None = None  # required for edit
-    # NOTE: approved_by is intentionally absent — it comes from X-Human-Session header.
+    # NOTE: approved_by is absent — it is extracted from the JWT sub claim
+    # in X-Human-Session, never from the request body. (ADR-036)
 
 
 # ---------------------------------------------------------------------------
 # Endpoints
 # ---------------------------------------------------------------------------
+
+@app.post("/auth/login")
+def auth_login(req: LoginRequest) -> dict:
+    from talos.auth.tokens import issue_token
+    try:
+        return {"token": issue_token(req.username, req.password)}
+    except ValueError:
+        raise HTTPException(status_code=401, detail="invalid credentials")
+
 
 @app.post("/boards", status_code=201)
 def create_board(req: CreateBoardRequest) -> dict:
@@ -214,13 +244,27 @@ def submit_gate_outcome(
     req: GateOutcomeRequest,
     x_human_session: str | None = Header(default=None, alias="X-Human-Session"),
 ) -> dict[str, Any]:
-    # RT-01: approved_by always from X-Human-Session header, never the request body.
-    _SYSTEM_ACCOUNTS = {"service", "worker", "agent", "system"}
-    if not x_human_session or x_human_session in _SYSTEM_ACCOUNTS:
+    # RT-01: X-Human-Session must carry a validated TALOS JWT with
+    # token_class="human". approved_by = JWT sub claim. (ADR-036)
+    if not x_human_session:
         raise HTTPException(
             status_code=403,
             detail={"error": "human session required"},
         )
+    try:
+        from talos.auth.tokens import validate_token
+        _claims = validate_token(x_human_session)
+    except _jwt.PyJWTError:
+        raise HTTPException(
+            status_code=403,
+            detail={"error": "human session required"},
+        )
+    if _claims.get("token_class") != "human":
+        raise HTTPException(
+            status_code=403,
+            detail={"error": "human session required"},
+        )
+    approved_by = _claims["sub"]
 
     _VALID_OUTCOMES = {"approve", "reject", "waive", "edit", "escalate"}
     if req.outcome not in _VALID_OUTCOMES:
@@ -300,7 +344,7 @@ def submit_gate_outcome(
         Command(
             resume={
                 "outcome": req.outcome,
-                "approved_by": x_human_session,
+                "approved_by": approved_by,
                 "reason": req.reason,
                 "justification": req.justification,
                 "new_deliverable": req.new_deliverable,
@@ -309,4 +353,4 @@ def submit_gate_outcome(
         config={"configurable": {"thread_id": session_key}},
     )
 
-    return {"status": "ok", "outcome": req.outcome, "approved_by": x_human_session}
+    return {"status": "ok", "outcome": req.outcome, "approved_by": approved_by}

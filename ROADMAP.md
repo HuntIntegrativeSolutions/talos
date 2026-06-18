@@ -359,7 +359,7 @@ Zero unauthorized live writes. Deliverable: Markdown documentation package.
 **Deployment:** On-prem at engineer's workstation. Air-gapped by default.
 **LLM:** Multi-provider configurable — Claude, Codex, Deepseek, Ollama (local), any OpenAI-
 compatible endpoint. API key or OAuth. ADR-031.
-**Auth:** JWT local auth server (username/password). ADR-028/RT-01.
+**Auth:** JWT local auth server (username/password). ADR-036/RT-01.
 **v1 success metric:** (1) X gated deliverables approved with zero live writes, (2)
 time-to-confident-approval < target minutes, (3) N non-HIS engineers on real projects.
 **v1 non-goals:** No business-ops capabilities. Doc-gen skills (fds, soo, etc.) are v1.x.
@@ -378,14 +378,14 @@ ADR-031 through ADR-035 capture the 2026-06-16 interview decisions.
 
 ```
 P0-Foundation (now)
-  ├── RT-01: JWT local auth server (RT-01 blocker; gates security review; gates P3.5)
+  ├── RT-01: JWT local auth server ✓ (ADR-036; closes RT-16; 63 tests passing)
+  ├── Alembic baseline migration ✓ (ADR-034; V0001+V0002 migrations live)
   ├── Security review (/security-review before real client data with real credentials)
   ├── RT-09: Policy-presence CI test (RLS already active on core tables; cover PM tables)
   ├── RT-14: Disposition all ~85 NEXUS tools in capability manifest (SoR-writers excluded)
   ├── RT-20: Idempotency key spec — attempt-independent key; atomic UNIQUE-constraint insert
   ├── RT-06: no-client-identifiers-in-shared critic (non-waivable; ADR-005 enforcement)
-  ├── Alembic baseline migration (ADR-034)
-  └── ADR-025–028, ADR-031–035 (written 2026-06-17) ✓
+  └── ADR-025–028, ADR-031–036 (written 2026-06-17) ✓
 
 P3.5-Harness (prerequisite before P4)
   ├── Prerequisite: Multi-provider LLM config (ADR-031) — Claude + Ollama + OAuth

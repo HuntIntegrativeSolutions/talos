@@ -20,6 +20,11 @@ app = [
     "langgraph>=0.2",
     "langgraph-checkpoint-postgres",
     "requests",
+    "alembic",
+    "sqlalchemy",
+    "PyJWT>=2.0",
+    "cryptography",
+    "argon2-cffi",
 ]
 test = [
     "pytest",
@@ -32,6 +37,11 @@ test = [
     "langgraph>=0.2",
     "langgraph-checkpoint-postgres",
     "requests",
+    "alembic",
+    "sqlalchemy",
+    "PyJWT>=2.0",
+    "cryptography",
+    "argon2-cffi",
 ]
 experiment = [
     "claude-agent-sdk",

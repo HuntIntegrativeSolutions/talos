@@ -65,11 +65,11 @@ def _count_rows(conn, table: str, task_id: str, **filters) -> int:
         return cur.fetchone()[0]
 
 
-def _gate(client, board_id, task_id, headers=None, **payload) -> object:
+def _gate(client, board_id, task_id, human_jwt, headers=None, **payload) -> object:
     return client.post(
         f"/boards/{board_id}/tasks/{task_id}/gate",
         json=payload,
-        headers=headers or {"X-Human-Session": "thunt"},
+        headers=headers or {"X-Human-Session": human_jwt},
     )
 
 
@@ -98,7 +98,7 @@ def test_meta_critic_safety_not_waivable():
 # Test 2: All five outcomes write correct columns
 # ---------------------------------------------------------------------------
 
-def test_all_five_outcomes_write_correct_columns(pg_setup, admin_conn, test_graph):
+def test_all_five_outcomes_write_correct_columns(pg_setup, admin_conn, test_graph, human_jwt):
     os.environ["TALOS_NEXUS_STUB"] = "1"
     from talos import api as api_module
     from talos.worker import claim_and_run
@@ -109,7 +109,7 @@ def test_all_five_outcomes_write_correct_columns(pg_setup, admin_conn, test_grap
     b, t = f"b-{uuid.uuid4().hex[:8]}", f"t-{uuid.uuid4().hex[:8]}"
     _seed(admin_conn, b, t)
     claim_and_run(b, t, graph=test_graph)
-    resp = _gate(client, b, t, outcome="approve")
+    resp = _gate(client, b, t, human_jwt, outcome="approve")
     assert resp.status_code == 200, resp.text
     task = _query_task(admin_conn, b, t)
     assert task["status"] == "approved"
@@ -121,7 +121,7 @@ def test_all_five_outcomes_write_correct_columns(pg_setup, admin_conn, test_grap
     b, t = f"b-{uuid.uuid4().hex[:8]}", f"t-{uuid.uuid4().hex[:8]}"
     _seed(admin_conn, b, t)
     claim_and_run(b, t, graph=test_graph)
-    resp = _gate(client, b, t, outcome="reject", reason="needs more detail")
+    resp = _gate(client, b, t, human_jwt, outcome="reject", reason="needs more detail")
     assert resp.status_code == 200, resp.text
     task = _query_task(admin_conn, b, t)
     assert task["status"] == "rejected"
@@ -145,12 +145,12 @@ def test_all_five_outcomes_write_correct_columns(pg_setup, admin_conn, test_grap
     claim_and_run(b, t, graph=test_graph)
     # All critics pass on the default stub, so nothing to waive.
     # Force a waivable critic to fail by injecting a proposed citation via edit.
-    resp = _gate(client, b, t, outcome="edit",
+    resp = _gate(client, b, t, human_jwt, outcome="edit",
                  new_deliverable={"citations": [{"finding_id": "X", "status": "proposed"}],
                                   "summary": "edited"})
     assert resp.status_code == 200, resp.text
     # citations_resolvable now fails (waivable=True). Waive it.
-    resp = _gate(client, b, t, outcome="waive", justification="risk accepted")
+    resp = _gate(client, b, t, human_jwt, outcome="waive", justification="risk accepted")
     assert resp.status_code == 200, resp.text
     task = _query_task(admin_conn, b, t)
     assert task["status"] == "approved"
@@ -166,7 +166,7 @@ def test_all_five_outcomes_write_correct_columns(pg_setup, admin_conn, test_grap
     b, t = f"b-{uuid.uuid4().hex[:8]}", f"t-{uuid.uuid4().hex[:8]}"
     _seed(admin_conn, b, t)
     claim_and_run(b, t, graph=test_graph)
-    resp = _gate(client, b, t, outcome="edit",
+    resp = _gate(client, b, t, human_jwt, outcome="edit",
                  new_deliverable={"citations": [{"finding_id": "REAL_TAG",
                                                  "status": "confirmed"}],
                                   "summary": "updated"})
@@ -177,7 +177,7 @@ def test_all_five_outcomes_write_correct_columns(pg_setup, admin_conn, test_grap
     # New critic rows from the re-run must exist.
     assert _count_rows(admin_conn, "task_gate_results", t) >= 2
     # Now approve.
-    resp = _gate(client, b, t, outcome="approve")
+    resp = _gate(client, b, t, human_jwt, outcome="approve")
     assert resp.status_code == 200, resp.text
     task = _query_task(admin_conn, b, t)
     assert task["status"] == "approved"
@@ -190,7 +190,7 @@ def test_all_five_outcomes_write_correct_columns(pg_setup, admin_conn, test_grap
     _seed(admin_conn, b, t)
     claim_and_run(b, t, graph=test_graph)
     # Step 1: edit to inject live_write=True — forces no_live_write_in_deliverable to fail.
-    resp = _gate(client, b, t, outcome="edit",
+    resp = _gate(client, b, t, human_jwt, outcome="edit",
                  new_deliverable={
                      "live_write": True,
                      "citations": [{"finding_id": "MOCK_TAG", "status": "confirmed"}],
@@ -199,10 +199,10 @@ def test_all_five_outcomes_write_correct_columns(pg_setup, admin_conn, test_grap
     task = _query_task(admin_conn, b, t)
     assert task["status"] == "review"
     # Waive must be blocked because no_live_write_in_deliverable has waivable=False.
-    resp = _gate(client, b, t, outcome="waive", justification="try to waive safety critic")
+    resp = _gate(client, b, t, human_jwt, outcome="waive", justification="try to waive safety critic")
     assert resp.status_code == 409, f"expected 409 from safety critic block, got {resp.status_code}"
     # Step 2: escalate with justification.
-    resp = _gate(client, b, t, outcome="escalate",
+    resp = _gate(client, b, t, human_jwt, outcome="escalate",
                  justification="accepted after full manual review")
     assert resp.status_code == 200, resp.text
     task = _query_task(admin_conn, b, t)
