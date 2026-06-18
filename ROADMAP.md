@@ -41,6 +41,15 @@ Everything in BLUEPRINT.md is settled at the design level:
 - `docs/decisions/ADR-002` — board-as-Space
 - `docs/decisions/ADR-003` — polyglot memory
 - `engine/schema.sql` — Hermes board ported to Postgres with the review gate and spaces tables added
+- `docs/decisions/ADR-025` — board-api contract formalization ✓ (2026-06-17)
+- `docs/decisions/ADR-026` — capability-manifest contract formalization ✓ (2026-06-17)
+- `docs/decisions/ADR-027` — nexus-federation contract formalization + CR-07 override ✓ (2026-06-17)
+- `docs/decisions/ADR-028` — widget-sandbox contract formalization ✓ (2026-06-17)
+- `docs/decisions/ADR-031` — multi-provider LLM config + OAuth + air-gap ✓ (2026-06-17)
+- `docs/decisions/ADR-032` — manifest pin storage (boards table, SHA-256) ✓ (2026-06-17)
+- `docs/decisions/ADR-033` — runtime tool-policy enforcement (hook + proxy) ✓ (2026-06-17)
+- `docs/decisions/ADR-034` — schema migration versioning (Alembic, raw SQL) ✓ (2026-06-17)
+- `docs/decisions/ADR-035` — board-scoped NEXUS read cache (TTL, staleness at gate) ✓ (2026-06-17)
 
 ### License audit (from Jun 10 session — repos cloned and verified)
 | Upstream | License | What TALOS takes |
@@ -339,22 +348,94 @@ Ideas → evaluated → either formalized into an ADR or marked deferred. Nothin
 
 ---
 
-## Immediate next actions
+## v1 Charter (decided 2026-06-16)
 
-P0, P1, and P2 are complete. The core gate is implemented and tested (27 tests passing).
-The repo is live at `github.com/HuntIntegrativeSolutions/talos.git`.
+**First use-case:** Full PLC documentation — a controls engineer triggers TALOS to analyze a
+PLC program, TALOS uses NEXUS (read-only, stdio subprocess) to generate a complete Markdown
+documentation set, deterministic critics gate the artifact, and the engineer approves it.
+Zero unauthorized live writes. Deliverable: Markdown documentation package.
 
-**Next engineering phase:** P3 — Full Distributed Dispatcher.
-See `docs/integration/04_build_sequence.md` for the full dependency-ordered build sequence.
+**v1 persona:** Controls/automation engineer.
+**Deployment:** On-prem at engineer's workstation. Air-gapped by default.
+**LLM:** Multi-provider configurable — Claude, Codex, Deepseek, Ollama (local), any OpenAI-
+compatible endpoint. API key or OAuth. ADR-031.
+**Auth:** JWT local auth server (username/password). ADR-028/RT-01.
+**v1 success metric:** (1) X gated deliverables approved with zero live writes, (2)
+time-to-confident-approval < target minutes, (3) N non-HIS engineers on real projects.
+**v1 non-goals:** No business-ops capabilities. Doc-gen skills (fds, soo, etc.) are v1.x.
+**Cockpit:** Minimal gate-approval UI (Markdown preview + critic verdicts + five outcome
+buttons) in v1. Full Space Agent cockpit (P7) is v1.x, after P5/P6 in canonical order.
 
-P3 deliverables (planned across sub-phases):
-- **P3a** — PostgresSaver + reclaim reconciliation (replace MemorySaver; RT-20)
-- **P3b** — DAG-priority dispatcher, heartbeat, multi-writer reducers (RT-04, RT-10, RT-21)
-- **P3c** — Docker sandbox (`network:none`, `readOnlyRoot` per ADR-010; RT-27, RT-28)
-- **P3d** — ADR-016 PM hooks + severity-gated escalator + snapshot/rollback
+---
 
-Before P3 begins: resolve open customizability questions (model selection, memory backend
-flexibility) via an interview session — results become new ADRs.
+## Current status and next phase sequence
+
+P0–P3 core are complete and tested (56 tests passing).
+ADR-025 through ADR-028 formalize the four frozen contracts.
+ADR-031 through ADR-035 capture the 2026-06-16 interview decisions.
+
+**Phase sequence (revised after 2026-06-16 requirements interview):**
+
+```
+P0-Foundation (now)
+  ├── RT-01: JWT local auth server (RT-01 blocker; gates security review; gates P3.5)
+  ├── Security review (/security-review before real client data with real credentials)
+  ├── RT-09: Policy-presence CI test (RLS already active on core tables; cover PM tables)
+  ├── RT-14: Disposition all ~85 NEXUS tools in capability manifest (SoR-writers excluded)
+  ├── RT-20: Idempotency key spec — attempt-independent key; atomic UNIQUE-constraint insert
+  ├── RT-06: no-client-identifiers-in-shared critic (non-waivable; ADR-005 enforcement)
+  ├── Alembic baseline migration (ADR-034)
+  └── ADR-025–028, ADR-031–035 (written 2026-06-17) ✓
+
+P3.5-Harness (prerequisite before P4)
+  ├── Prerequisite: Multi-provider LLM config (ADR-031) — Claude + Ollama + OAuth
+  ├── Wire real NEXUS MCP stdio subprocess (drop TALOS_NEXUS_STUB=1)
+  ├── Run full_plc_documentation on real HIS L5X (local dev, NDA data, never CI)
+  └── Exit criteria: reclaim no double-apply, heartbeat during long NEXUS call,
+      model fallback on provider error, budget hard-cap → escalate not crash
+
+P4-Memory (Postgres + Chroma in v1; Neo4j + Redis deferred)
+  ├── Chroma: documentation chunk embeddings (configurable local/cloud embedding model)
+  ├── Board-scoped NEXUS read cache in Postgres (ADR-035; TTL, staleness at gate)
+  ├── Commutative/associative reducers for parallel Postgres+Chroma read fan-out (DoD #3)
+  ├── Lightweight /promote_rule endpoint (ADR-005)
+  ├── Deferred P3 DoD #5: milestone safety-significant gating (HIGH-severity auto-stage)
+  └── [Post-v1] Neo4j episodic graph + Redis hot cache
+
+P5-Crystallize
+  ├── Automatic post-approval trigger
+  ├── Three-type rule extraction: factual / procedural / project-context (ADR-023)
+  ├── Chroma semantic retrieval at task start
+  └── Commutative reducers for parallel crystallize fan-out
+
+P6-Sim (scope TBD for v1)
+  └── Rockwell-based PLC emulator via pylogix; custom library evaluation underway
+
+P7a-MinimalGateUI (v1, built alongside P0 JWT auth)
+  ├── Thin web page: Markdown artifact preview + critic verdicts + five gate outcome buttons
+  ├── JWT local auth server wired in (RT-01)
+  ├── OS desktop notification + optional SMTP email
+  └── Board-level SLA config (no system-level default)
+
+P7b-FullCockpit (v1.x, sequential after P5/P6)
+  └── Full Space Agent web cockpit: spaces, widgets, time-travel, Gantt, event stream
+
+P8-Gateway
+  └── One proactive loop: documentation freshness check (propose-only, never auto-approve)
+```
+
+**Deferred to post-v1:**
+- Neo4j (NEXUS graph + TALOS episodic graph) — introduced when graph traversal patterns proven
+- Redis (hot task state + pub/sub) — introduced when hot-cache patterns proven
+- Business-ops capabilities (QuickBooks, Drive, Asana, Gmail, Calendar, MS365)
+- Doc-gen skills as gated TALOS capabilities (fds, soo, io-list, etc.) — v1.x fast-follow
+- Full Space Agent cockpit (P7b) — v1.x
+
+P3 deliverables (implemented):
+- **P3a** — PostgresSaver + reclaim reconciliation (replace MemorySaver; RT-20) ✓
+- **P3b** — DAG-priority dispatcher, heartbeat (RT-04, RT-10, RT-21; multi-writer reducers deferred to P4 as DoD #3) ✓
+- **P3c** — Docker sandbox (`network:none`, `readOnlyRoot` per ADR-010; RT-27, RT-28) ✓
+- **P3d** — ADR-016 PM hooks + severity-gated escalator (milestone safety-gating deferred to P4 as DoD #5) ✓
 
 ---
 

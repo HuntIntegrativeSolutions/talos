@@ -4,13 +4,13 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project status
 
-**Pre-alpha, P0 + P1 + P2 complete.** TALOS is an agent harness for industrial and business operations. The engine port and web view have not been built. Runnable code:
+**Pre-alpha, P0–P3 core complete.** P3 DoD items #3 (multi-writer reducer commutativity) and #5 (milestone safety-significant gating) are deliberately deferred to P4 (ADR-029/ADR-030). TALOS is an agent harness for industrial and business operations. The engine port and web view have not been built. Runnable code:
 - `talos/validators/` — capability-manifest validator (P0)
 - `talos/critics/` — deterministic gate critics and registry (P2)
 - `talos/graph/spine.py` — 4-node LangGraph spine with five-outcome gate (P1/P2)
-- `talos/worker.py` — single-worker claim loop (P1, no dispatcher)
+- `talos/worker.py` — asyncio dispatcher (`run_dispatcher`, `_worker_slot`), heartbeat, and dead-worker reclaim (P3a/b)
 - `talos/api.py` — FastAPI board API with full gate endpoint (P1/P2)
-- `talos/tests/` — 6 P1 spine tests + 4 P2 gate tests + critic unit tests
+- `talos/tests/` — 56 tests passing (P1 spine, P2 gate, critic unit tests, P3a/b/c/d suites in `test_p3*.py`, PM scheduling)
 - `talos/experiments/` — Agent SDK prototype (ADR-029)
 
 ## Running tests

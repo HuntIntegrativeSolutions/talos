@@ -11,8 +11,9 @@
 --                 -- alternative: schema-per-client or database-per-edge.
 --   D2  Gate:     separate task_gate_results table + approval columns on tasks
 --                 -- a task physically cannot leave 'review' until every required
---                    critic row is 'pass' AND approved_at is set (enforced in the
---                    engine; v_gate_status below is the read model).
+--                    critic row is 'pass' AND approved_at is set (currently enforced
+--                    at the application/API layer in talos/api.py; a DB-level trigger
+--                    is planned as future hardening; v_gate_status is the read model).
 --   D3  Time:     timestamptz everywhere (Hermes used epoch ints for SQLite).
 -- =============================================================================
 

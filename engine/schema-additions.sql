@@ -119,7 +119,7 @@ WITH RECURSIVE forward_pass AS (
         COALESCE(t.estimated_hours, 0) AS remaining_hours,
         0 AS depth
     FROM tasks t
-    WHERE t.board_id = current_setting('talos.board_id', true)
+    WHERE t.board_id = current_setting('app.board_id', true)
       AND NOT EXISTS (
           SELECT 1 FROM task_links tl WHERE tl.child_id = t.id
       )
@@ -143,7 +143,7 @@ WITH RECURSIVE forward_pass AS (
     FROM tasks child
     JOIN task_links tl ON tl.child_id = child.id
     JOIN forward_pass fp ON fp.id = tl.parent_id
-    WHERE child.board_id = current_setting('talos.board_id', true)
+    WHERE child.board_id = current_setting('app.board_id', true)
 )
 SELECT DISTINCT ON (id)
     id, earliest_start, remaining_hours, depth
@@ -164,7 +164,7 @@ backward_leaves AS (
         t.board_id,
         COALESCE(t.deadline, '2099-12-31'::timestamptz) AS latest_finish
     FROM tasks t
-    WHERE t.board_id = current_setting('talos.board_id', true)
+    WHERE t.board_id = current_setting('app.board_id', true)
       AND NOT EXISTS (
           SELECT 1 FROM task_links tl WHERE tl.parent_id = t.id
       )
@@ -201,8 +201,8 @@ SELECT
     deadline,
     estimated_hours,
     float_hours,
-    float_hours <= 0 AS on_critical_path,
-    float_hours < 0  AS already_late,
+    COALESCE(float_hours <= 0, false) AS on_critical_path,
+    COALESCE(float_hours < 0, false)  AS already_late,
     status,
     depth
 FROM scheduling
@@ -353,14 +353,14 @@ BEGIN
             earliest_start   = COALESCE(tasks.earliest_start, cp.earliest_start), -- don't clobber overrides
             latest_finish    = cp.latest_finish
         WHERE tasks.id = cp.id
-          AND tasks.board_id = current_setting('talos.board_id', true);
+          AND tasks.board_id = current_setting('app.board_id', true);
     END LOOP;
 
     -- Update milestone status based on recomputed critical path
     FOR milestone IN
         SELECT m.id, m.deadline, m.depends_on
         FROM milestones m
-        WHERE m.board_id = current_setting('talos.board_id', true)
+        WHERE m.board_id = current_setting('app.board_id', true)
           AND m.status NOT IN ('met', 'missed')
     LOOP
         -- Check if all dependency tasks are done/approved
@@ -448,7 +448,7 @@ CREATE TRIGGER trg_pm_escalate_milestone_risk
 --
 -- SELECT * FROM tasks
 -- WHERE status = 'ready'
---   AND board_id = current_setting('talos.board_id', true)
+--   AND board_id = current_setting('app.board_id', true)
 -- ORDER BY on_critical_path DESC, priority DESC, earliest_start ASC
 -- LIMIT 1;
 
