@@ -19,7 +19,7 @@ import asyncio
 import logging
 import os
 
-from talos.db import board_scope, get_conn
+from talos.db import board_scope, get_conn, get_system_conn
 from talos.errors import BudgetExhaustedError, ModelFailureError
 from talos.graph.spine import SpineState, build_graph, default_budget
 
@@ -44,56 +44,69 @@ __all__ = [
 ]
 
 
-def reclaim_dead_workers(conn) -> int:
+def reclaim_dead_workers() -> int:
     """
     Scan task_runs for rows where last_heartbeat_at has gone stale and re-queue
     the associated task. Returns the number of runs reclaimed.
+
+    Uses get_system_conn() (BYPASSRLS talos_system role) so it can see stale
+    runs on all boards without a board_scope. See ADR-037.
     """
     import psycopg2.extras
-    reclaimed = 0
-    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-        cur.execute(
-            """
-            SELECT tr.id AS run_id, tr.task_id, tr.board_id
-            FROM task_runs tr
-            WHERE tr.ended_at IS NULL
-              AND tr.last_heartbeat_at IS NOT NULL
-              AND tr.last_heartbeat_at < NOW() - (%s * INTERVAL '1 second')
-            """,
-            (_RECLAIM_INTERVAL_S,),
-        )
-        dead = cur.fetchall()
-        for row in dead:
+    from talos.spans import SpanContext, emit_span
+
+    conn = get_system_conn()
+    try:
+        reclaimed = 0
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             cur.execute(
-                "UPDATE task_runs SET ended_at = NOW(), outcome = 'reclaimed' WHERE id = %s",
-                (row["run_id"],),
+                """
+                SELECT tr.id AS run_id, tr.task_id, tr.board_id
+                FROM task_runs tr
+                WHERE tr.ended_at IS NULL
+                  AND tr.last_heartbeat_at IS NOT NULL
+                  AND tr.last_heartbeat_at < NOW() - (%s * INTERVAL '1 second')
+                """,
+                (_RECLAIM_INTERVAL_S,),
             )
-            cur.execute(
-                "UPDATE tasks SET status = 'ready' WHERE id = %s AND board_id = %s",
-                (row["task_id"], row["board_id"]),
-            )
-            log.warning(
-                "reclaimed dead task_run id=%s task_id=%s board_id=%s",
-                row["run_id"], row["task_id"], row["board_id"],
-            )
-            from talos.spans import SpanContext, emit_span
-            emit_span(
-                SpanContext(board_id=row["board_id"], task_id=row["task_id"], run_id=row["run_id"]),
-                "worker.reclaim",
-                payload={"stale_run_id": row["run_id"]},
-            )
-            reclaimed += 1
-    conn.commit()
-    return reclaimed
+            dead = cur.fetchall()
+            for row in dead:
+                cur.execute(
+                    "UPDATE task_runs SET ended_at = NOW(), outcome = 'reclaimed' WHERE id = %s",
+                    (row["run_id"],),
+                )
+                cur.execute(
+                    "UPDATE tasks SET status = 'ready' WHERE id = %s AND board_id = %s",
+                    (row["task_id"], row["board_id"]),
+                )
+                log.warning(
+                    "reclaimed dead task_run id=%s task_id=%s board_id=%s",
+                    row["run_id"], row["task_id"], row["board_id"],
+                )
+                emit_span(
+                    SpanContext(board_id=row["board_id"], task_id=row["task_id"], run_id=row["run_id"]),
+                    "worker.reclaim",
+                    payload={"stale_run_id": row["run_id"]},
+                    db_conn=conn,
+                )
+                reclaimed += 1
+        conn.commit()
+        return reclaimed
+    finally:
+        conn.close()
 
 
-def make_heartbeat_callback(run_id: int):
-    """Return a node_callback that writes last_heartbeat_at for the given run."""
+def make_heartbeat_callback(run_id: int, board_id: str):
+    """Return a node_callback that writes last_heartbeat_at for the given run.
+
+    Requires board_id so board_scope sets app.board_id before the UPDATE —
+    without SET LOCAL the talos_app RLS policy blocks the write (task_runs
+    is board-scoped; autocommit=True would prevent SET LOCAL from applying).
+    """
     def callback(state: SpineState) -> None:
         conn = get_conn()
         try:
-            conn.autocommit = True
-            with conn.cursor() as cur:
+            with board_scope(conn, board_id) as cur:
                 cur.execute(
                     "UPDATE task_runs SET last_heartbeat_at = NOW() WHERE id = %s",
                     (run_id,),
@@ -121,7 +134,7 @@ def claim_and_run(board_id: str, task_id: str, graph=None) -> str:
     conn = get_conn()
     try:
         # Scan for dead workers before claiming (ADR-020).
-        reclaim_dead_workers(conn)
+        reclaim_dead_workers()
 
         with board_scope(conn, board_id) as cur:
             # 1. Fetch task and board (for model_config), assert status == 'ready'
@@ -179,7 +192,7 @@ def claim_and_run(board_id: str, task_id: str, graph=None) -> str:
         conn.close()
 
     if graph is None:
-        graph = build_graph(node_callback=make_heartbeat_callback(run_id))
+        graph = build_graph(node_callback=make_heartbeat_callback(run_id, board_id))
 
     initial_state: SpineState = {
         "board_id": board_id,

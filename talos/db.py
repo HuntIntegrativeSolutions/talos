@@ -24,6 +24,24 @@ def get_conn(dsn: str | None = None) -> psycopg2.extensions.connection:
     return conn
 
 
+def get_system_conn() -> psycopg2.extensions.connection:
+    """Return a connection for cross-board system operations (reclaim janitor).
+
+    Uses TALOS_RECLAIM_DSN, which must point to a BYPASSRLS role (talos_system).
+    Fail-closed: raises RuntimeError if the env var is unset so a misconfigured
+    deployment fails loudly rather than silently returning zero rows cross-board.
+    """
+    dsn = os.environ.get("TALOS_RECLAIM_DSN")
+    if not dsn:
+        raise RuntimeError(
+            "TALOS_RECLAIM_DSN is required for cross-board reclaim. "
+            "Set it to the talos_system (BYPASSRLS) role DSN."
+        )
+    conn = psycopg2.connect(dsn)
+    conn.autocommit = False
+    return conn
+
+
 @contextlib.contextmanager
 def board_scope(conn: psycopg2.extensions.connection, board_id: str):
     """

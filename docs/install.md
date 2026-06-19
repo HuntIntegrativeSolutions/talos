@@ -34,30 +34,52 @@ pip install --no-index --find-links /path/to/wheels -e ".[app]"
 Set the following in your shell profile or a `.env` file (not committed):
 
 ```bash
-export TALOS_DB_DSN="postgresql://talos_app:talos_app@localhost/talos"
+export TALOS_DB_DSN="postgresql://talos_app:<password>@localhost/talos"
+export TALOS_RECLAIM_DSN="postgresql://talos_system:<password>@localhost/talos"
 export TALOS_JWT_SECRET="<strong random string — at least 32 chars>"
 export TALOS_JWT_EXPIRY_HOURS="8"  # optional, default is 8
 ```
 
-Generate a strong secret:
+Generate strong secrets/passwords:
 ```bash
-python -c "import secrets; print(secrets.token_hex(32))"
+python -c "import secrets; print(secrets.token_hex(32))"  # for TALOS_JWT_SECRET
+python -c "import secrets; print(secrets.token_urlsafe(24))"  # for role passwords
 ```
+
+`TALOS_RECLAIM_DSN` must point to the `talos_system` BYPASSRLS role (created in step 3). If
+unset, the worker dispatcher will raise `RuntimeError` on startup rather than silently
+returning zero rows for cross-board reclaim.
 
 ## 3. Initialise the database
 
 ```bash
-# Create the talos database and roles as postgres superuser:
+# Create the talos database and roles as postgres superuser.
+# Replace <talos_app_pw> and <talos_system_pw> with strong generated passwords.
 psql -U postgres -c "CREATE DATABASE talos;"
-psql -U postgres -c "CREATE ROLE talos_app NOSUPERUSER NOINHERIT LOGIN PASSWORD 'talos_app';"
+
+# talos_app: application role — RLS enforced (NOSUPERUSER)
+psql -U postgres -c "CREATE ROLE talos_app NOSUPERUSER NOINHERIT LOGIN PASSWORD '<talos_app_pw>';"
 psql -U postgres -c "GRANT ALL ON DATABASE talos TO talos_app;"
 
-# Apply all schema migrations:
+# talos_system: cross-board reclaim janitor — BYPASSRLS, minimal grants (ADR-037)
+psql -U postgres -c "CREATE ROLE talos_system BYPASSRLS NOSUPERUSER NOINHERIT LOGIN PASSWORD '<talos_system_pw>';"
+psql -U postgres -c "GRANT CONNECT ON DATABASE talos TO talos_system;"
+
+# Apply all schema migrations (includes FORCE ROW LEVEL SECURITY — V0003):
 alembic -c engine/alembic.ini upgrade head
 
 # Grant talos_app access to all tables (run as postgres superuser):
 psql -U postgres -d talos -c "GRANT SELECT, INSERT, UPDATE ON ALL TABLES IN SCHEMA public TO talos_app;"
 psql -U postgres -d talos -c "GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO talos_app;"
+
+# Grant talos_system access for cross-board reclaim:
+# SELECT on all tables is required so triggers (pm_recompute_scheduling) can read
+# v_critical_path and underlying tables when talos_system updates task status.
+psql -U postgres -d talos -c "GRANT USAGE ON SCHEMA public TO talos_system;"
+psql -U postgres -d talos -c "GRANT SELECT ON ALL TABLES IN SCHEMA public TO talos_system;"
+psql -U postgres -d talos -c "GRANT UPDATE ON task_runs, tasks TO talos_system;"
+psql -U postgres -d talos -c "GRANT INSERT ON task_spans TO talos_system;"
+psql -U postgres -d talos -c "GRANT USAGE, SELECT ON SEQUENCE task_spans_id_seq TO talos_system;"
 ```
 
 ## 4. Bootstrap the first user

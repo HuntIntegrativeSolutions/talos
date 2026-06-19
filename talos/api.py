@@ -63,6 +63,12 @@ VALID_STATUSES = {
     "approved", "rejected", "done", "archived",
 }
 
+# SEC-01: approved/rejected/done are gate-owned terminal states.
+# They must only be written by post_gate_node (which sets approved_at/rejected_at)
+# or a future authenticated done-transition — never by an unauthenticated PATCH.
+# archived is administrative (not a DAG-dispatch trigger) and remains PATCH-settable.
+PATCH_ALLOWED_STATUSES = VALID_STATUSES - {"approved", "rejected", "done"}
+
 # Columns the view must never expose (board-api.md §1 — least-privilege projection)
 _HIDDEN = {
     "claim_lock", "worker_pid", "session_id",
@@ -185,10 +191,13 @@ def get_task(board_id: str, task_id: str) -> dict[str, Any]:
 def patch_task_status(
     board_id: str, task_id: str, req: PatchStatusRequest
 ) -> dict[str, Any]:
-    if req.status not in VALID_STATUSES:
+    if req.status not in PATCH_ALLOWED_STATUSES:
         raise HTTPException(
             status_code=422,
-            detail=f"status must be one of {sorted(VALID_STATUSES)}",
+            detail=(
+                f"status must be one of {sorted(PATCH_ALLOWED_STATUSES)}; "
+                "approved/rejected/done are gate-only states (use POST /gate)"
+            ),
         )
     conn = get_conn()
     try:

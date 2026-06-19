@@ -332,15 +332,16 @@ def post_gate_node(state: SpineState) -> dict:
     conn = get_conn()
     try:
         with board_scope(conn, state["board_id"]) as cur:
-            # Idempotency guard — covers approve (approved), reject (rejected),
-            # waive (approved), and escalate (approved).
+            # Idempotency guard — keyed off gate markers, not status (SEC-01).
+            # approved_at is set by approve/waive/escalate; rejected_at by reject.
+            # Neither column is settable via PATCH /status, so this guard is unforgeable.
             cur.execute(
-                "SELECT status FROM tasks WHERE id = %s AND board_id = %s",
+                "SELECT status, approved_at, rejected_at FROM tasks WHERE id = %s AND board_id = %s",
                 (state["task_id"], state["board_id"]),
             )
             row = cur.fetchone()
-            if row and row["status"] in ("approved", "rejected"):
-                return {}  # already ran — idempotent no-op
+            if row and (row["approved_at"] is not None or row["rejected_at"] is not None):
+                return {}  # gate already decided — idempotent no-op
 
             if outcome == "approve":
                 cur.execute(

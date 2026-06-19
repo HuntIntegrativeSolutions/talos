@@ -204,3 +204,112 @@ def test_approved_by_not_from_body(pg_setup, admin_conn, test_graph, human_jwt):
     assert row["approved_by"] == "thunt", (
         f"approved_by should be JWT sub 'thunt', got {row['approved_by']!r}"
     )
+
+
+# ---------------------------------------------------------------------------
+# SEC-01 tests — gate-bypass fix (PATCH cannot set terminal states)
+# ---------------------------------------------------------------------------
+
+def test_patch_status_rejects_terminal_states(pg_setup, admin_conn):
+    from talos import api as api_module
+
+    b, t = f"b-{uuid.uuid4().hex[:8]}", f"t-{uuid.uuid4().hex[:8]}"
+    _seed(admin_conn, b, t)
+    client = TestClient(api_module.app)
+
+    for bad_status in ("approved", "rejected", "done"):
+        resp = client.patch(
+            f"/boards/{b}/tasks/{t}/status", json={"status": bad_status}
+        )
+        assert resp.status_code == 422, f"expected 422 for status={bad_status!r}, got {resp.status_code}"
+        assert "gate-only" in resp.json()["detail"], resp.text
+
+
+def test_patch_status_allows_nonterminal(pg_setup, admin_conn):
+    from talos import api as api_module
+
+    b, t = f"b-{uuid.uuid4().hex[:8]}", f"t-{uuid.uuid4().hex[:8]}"
+    _seed(admin_conn, b, t)
+    client = TestClient(api_module.app)
+
+    resp = client.patch(f"/boards/{b}/tasks/{t}/status", json={"status": "blocked"})
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["status"] == "blocked"
+
+
+def test_gate_idempotent_after_reject(pg_setup, admin_conn, test_graph, human_jwt):
+    import psycopg2.extras
+    os.environ["TALOS_NEXUS_STUB"] = "1"
+    from talos import api as api_module
+    from talos.worker import claim_and_run
+    from talos.graph.spine import post_gate_node
+
+    b, t = f"b-{uuid.uuid4().hex[:8]}", f"t-{uuid.uuid4().hex[:8]}"
+    _seed(admin_conn, b, t)
+    claim_and_run(b, t, graph=test_graph)
+
+    client = TestClient(api_module.app)
+    resp = client.post(
+        f"/boards/{b}/tasks/{t}/gate",
+        json={"outcome": "reject", "reason": "insufficient evidence"},
+        headers={"X-Human-Session": human_jwt},
+    )
+    assert resp.status_code == 200, resp.text
+
+    # Verify first run set rejected_at.
+    with admin_conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        cur.execute("SELECT rejected_at FROM tasks WHERE id = %s AND board_id = %s", (t, b))
+        row = cur.fetchone()
+    assert row["rejected_at"] is not None
+
+    # Fire post_gate_node a second time — must be a no-op (no duplicate event).
+    state = {
+        "board_id": b, "task_id": t, "run_id": 0,
+        "gate_outcome": "reject", "approved_by": "thunt",
+        "gate_justification": "insufficient evidence",
+        "edited_deliverable": None, "session_key": "",
+        "nexus_result": {}, "deliverable": {}, "critic_results": [], "attempt_no": 1,
+    }
+    post_gate_node(state)
+
+    with admin_conn.cursor() as cur:
+        cur.execute(
+            "SELECT COUNT(*) FROM task_events WHERE task_id = %s AND kind = 'gate_outcome'", (t,)
+        )
+        assert cur.fetchone()[0] == 1, "second post_gate_node must not write a duplicate event"
+
+
+def test_sec01_patch_cannot_poison_gate(pg_setup, admin_conn, test_graph, human_jwt):
+    """PATCH to approved is blocked; a subsequent real gate approval still writes approved_at."""
+    import psycopg2.extras
+    os.environ["TALOS_NEXUS_STUB"] = "1"
+    from talos import api as api_module
+    from talos.worker import claim_and_run
+
+    b, t = f"b-{uuid.uuid4().hex[:8]}", f"t-{uuid.uuid4().hex[:8]}"
+    _seed(admin_conn, b, t)
+    claim_and_run(b, t, graph=test_graph)
+
+    client = TestClient(api_module.app)
+
+    # Attack: attempt to pre-set status=approved via PATCH.
+    resp = client.patch(f"/boards/{b}/tasks/{t}/status", json={"status": "approved"})
+    assert resp.status_code == 422, f"PATCH to approved must be rejected, got {resp.status_code}"
+
+    # Real gate approval must still succeed and write approved_at.
+    resp = client.post(
+        f"/boards/{b}/tasks/{t}/gate",
+        json={"outcome": "approve"},
+        headers={"X-Human-Session": human_jwt},
+    )
+    assert resp.status_code == 200, resp.text
+
+    with admin_conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        cur.execute(
+            "SELECT status, approved_at, approved_by FROM tasks WHERE id = %s AND board_id = %s",
+            (t, b),
+        )
+        row = cur.fetchone()
+    assert row["status"] == "approved"
+    assert row["approved_at"] is not None, "gate approval must set approved_at"
+    assert row["approved_by"] == "thunt"

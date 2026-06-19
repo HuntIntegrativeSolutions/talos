@@ -130,12 +130,8 @@ def test_dead_worker_reclaim(pg_setup, admin_conn):
         )
     admin_conn.commit()
 
-    # reclaim_dead_workers() scans cross-board (no board_scope needed).
-    conn = get_conn()
-    try:
-        reclaimed = reclaim_dead_workers(conn)
-    finally:
-        conn.close()
+    # reclaim_dead_workers() manages its own talos_system connection (ADR-037).
+    reclaimed = reclaim_dead_workers()
 
     assert reclaimed >= 1
 

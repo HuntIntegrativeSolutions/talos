@@ -370,9 +370,9 @@ buttons) in v1. Full Space Agent cockpit (P7) is v1.x, after P5/P6 in canonical 
 
 ## Current status and next phase sequence
 
-P0–P3 core are complete and tested (56 tests passing).
+P0–P3 core are complete and tested (67 tests passing).
 ADR-025 through ADR-028 formalize the four frozen contracts.
-ADR-031 through ADR-035 capture the 2026-06-16 interview decisions.
+ADR-031 through ADR-036 capture the 2026-06-16 interview decisions and JWT auth.
 
 **Phase sequence (revised after 2026-06-16 requirements interview):**
 
@@ -380,8 +380,9 @@ ADR-031 through ADR-035 capture the 2026-06-16 interview decisions.
 P0-Foundation (now)
   ├── RT-01: JWT local auth server ✓ (ADR-036; closes RT-16; 63 tests passing)
   ├── Alembic baseline migration ✓ (ADR-034; V0001+V0002 migrations live)
-  ├── Security review (/security-review before real client data with real credentials)
-  ├── RT-09: Policy-presence CI test (RLS already active on core tables; cover PM tables)
+  ├── Security review ✓ SEC-01 resolved 2026-06-18 (67 tests; SEC-02–07 are Low/Medium, non-blocking)
+  ├── SEC-03 resolved 2026-06-18 ✓ (FORCE RLS V0003; DSN flip; heartbeat fix; talos_system reclaim; 70 tests)
+  ├── RT-09: Policy-presence CI test ✓ (FORCE RLS + cross-board isolation test — SEC-03 work; cover PM tables done)
   ├── RT-14: Disposition all ~85 NEXUS tools in capability manifest (SoR-writers excluded)
   ├── RT-20: Idempotency key spec — attempt-independent key; atomic UNIQUE-constraint insert
   ├── RT-06: no-client-identifiers-in-shared critic (non-waivable; ADR-005 enforcement)
@@ -391,6 +392,7 @@ P3.5-Harness (prerequisite before P4)
   ├── Prerequisite: Multi-provider LLM config (ADR-031) — Claude + Ollama + OAuth
   ├── Wire real NEXUS MCP stdio subprocess (drop TALOS_NEXUS_STUB=1)
   ├── Run full_plc_documentation on real HIS L5X (local dev, NDA data, never CI)
+  ├── [Blocker cleared] Heartbeat/reclaim correctness under talos_app RLS ✓ (SEC-03 / ADR-037)
   └── Exit criteria: reclaim no double-apply, heartbeat during long NEXUS call,
       model fallback on provider error, budget hard-cap → escalate not crash
 
@@ -430,6 +432,7 @@ P8-Gateway
 - Business-ops capabilities (QuickBooks, Drive, Asana, Gmail, Calendar, MS365)
 - Doc-gen skills as gated TALOS capabilities (fds, soo, io-list, etc.) — v1.x fast-follow
 - Full Space Agent cockpit (P7b) — v1.x
+- OT-security network monitoring (Snort IDS triage) — read-profile capability pack + P8 Gateway propose-only loop; see docs/upstream/snort-ot-monitoring-notes.md
 
 P3 deliverables (implemented):
 - **P3a** — PostgresSaver + reclaim reconciliation (replace MemorySaver; RT-20) ✓

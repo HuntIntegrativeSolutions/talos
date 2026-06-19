@@ -93,6 +93,17 @@ def pg_setup(pg_container):
         )
     """)
 
+    # Mirror V0003: FORCE ROW LEVEL SECURITY on all board-scoped tables (SEC-03).
+    # conftest stamps rather than runs upgrade(), so FORCE must be applied manually.
+    _RLS_TABLES = [
+        "tasks", "task_links", "task_comments", "task_events", "task_runs",
+        "task_attachments", "notify_subs", "task_gate_results", "spaces",
+        "space_versions", "widgets", "widget_versions", "task_gate_escalations",
+        "milestones", "task_spans",
+    ]
+    for _t in _RLS_TABLES:
+        cur.execute(f"ALTER TABLE {_t} FORCE ROW LEVEL SECURITY")
+
     # Create talos_app as NOSUPERUSER so RLS applies to it.
     # The table owner (postgres) bypasses RLS; talos_app does not.
     cur.execute(
@@ -113,6 +124,25 @@ def pg_setup(pg_container):
         "GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO talos_app"
     )
 
+    # Create talos_system: BYPASSRLS role for cross-board reclaim janitor (ADR-037).
+    cur.execute(
+        """
+        DO $$
+        BEGIN
+            IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'talos_system') THEN
+                CREATE ROLE talos_system BYPASSRLS NOSUPERUSER NOINHERIT LOGIN PASSWORD 'talos_system';
+            END IF;
+        END $$;
+        """
+    )
+    cur.execute("GRANT USAGE ON SCHEMA public TO talos_system")
+    # SELECT on all tables so pm_recompute_scheduling() trigger (fired by UPDATE tasks)
+    # can read v_critical_path and underlying tables without InsufficientPrivilege.
+    cur.execute("GRANT SELECT ON ALL TABLES IN SCHEMA public TO talos_system")
+    cur.execute("GRANT SELECT, UPDATE ON task_runs, tasks TO talos_system")
+    cur.execute("GRANT INSERT ON task_spans TO talos_system")
+    cur.execute("GRANT USAGE, SELECT ON SEQUENCE task_spans_id_seq TO talos_system")
+
     cur.close()
     conn.close()
 
@@ -123,6 +153,16 @@ def pg_setup(pg_container):
     alembic_cfg = Config(_ALEMBIC_INI)
     alembic_cfg.set_main_option("sqlalchemy.url", sa_url)
     alembic_command.stamp(alembic_cfg, "head")
+
+    # Flip TALOS_DB_DSN to talos_app so product code runs under enforced RLS.
+    # admin_dsn (superuser) is still yielded for the admin_conn fixture (seeding only).
+    host = pg_container.get_container_host_ip()
+    port = pg_container.get_exposed_port(5432)
+    app_dsn = f"postgresql://talos_app:talos_app@{host}:{port}/test"
+    os.environ["TALOS_DB_DSN"] = app_dsn
+
+    # Set TALOS_RECLAIM_DSN so get_system_conn() works for cross-board reclaim (ADR-037).
+    os.environ["TALOS_RECLAIM_DSN"] = f"postgresql://talos_system:talos_system@{host}:{port}/test"
 
     yield admin_dsn
 
