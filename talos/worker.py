@@ -16,8 +16,10 @@ P3b additions:
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 import os
+import threading
 
 from talos.db import board_scope, get_conn, get_system_conn
 from talos.errors import BudgetExhaustedError, ModelFailureError
@@ -63,9 +65,11 @@ def reclaim_dead_workers() -> int:
                 """
                 SELECT tr.id AS run_id, tr.task_id, tr.board_id
                 FROM task_runs tr
+                JOIN tasks t ON t.id = tr.task_id AND t.board_id = tr.board_id
                 WHERE tr.ended_at IS NULL
                   AND tr.last_heartbeat_at IS NOT NULL
                   AND tr.last_heartbeat_at < NOW() - (%s * INTERVAL '1 second')
+                  AND t.status = 'running'
                 """,
                 (_RECLAIM_INTERVAL_S,),
             )
@@ -94,6 +98,39 @@ def reclaim_dead_workers() -> int:
         return reclaimed
     finally:
         conn.close()
+
+
+@contextlib.contextmanager
+def _heartbeat_thread(run_id: int, board_id: str):
+    """Beat last_heartbeat_at every TALOS_HEARTBEAT_INTERVAL_S while a node may be blocking.
+
+    Reads the module-level TALOS_HEARTBEAT_INTERVAL_S at call time so tests can monkeypatch the
+    cadence. Daemon thread; always stopped on context exit (including on exception).
+    """
+    stop = threading.Event()
+
+    def _beat():
+        while not stop.wait(TALOS_HEARTBEAT_INTERVAL_S):
+            try:
+                conn = get_conn()
+                try:
+                    with board_scope(conn, board_id) as cur:
+                        cur.execute(
+                            "UPDATE task_runs SET last_heartbeat_at = NOW() WHERE id = %s",
+                            (run_id,),
+                        )
+                finally:
+                    conn.close()
+            except Exception:
+                log.exception("heartbeat thread: write failed for run_id=%s", run_id)
+
+    t = threading.Thread(target=_beat, name=f"hb-{run_id}", daemon=True)
+    t.start()
+    try:
+        yield
+    finally:
+        stop.set()
+        t.join(timeout=5)
 
 
 def make_heartbeat_callback(run_id: int, board_id: str):
@@ -215,10 +252,11 @@ def claim_and_run(board_id: str, task_id: str, graph=None) -> str:
     span_ctx = SpanContext(board_id=board_id, task_id=task_id, run_id=run_id)
     emit_span(span_ctx, "worker.claim")
 
-    graph.invoke(
-        initial_state,
-        config={"configurable": {"thread_id": session_key}},
-    )
+    with _heartbeat_thread(run_id, board_id):
+        graph.invoke(
+            initial_state,
+            config={"configurable": {"thread_id": session_key}},
+        )
 
     return session_key
 
