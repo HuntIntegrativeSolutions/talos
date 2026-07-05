@@ -77,3 +77,10 @@ def test_denylist_check_catches_a_sor_writer_when_present() -> None:
     }
     tool_names = [t["name"] for t in synthetic["tools"]]
     assert "tag_annotate" in _denylisted_tools(tool_names)
+
+
+def test_denylist_check_catches_a_glob_only_match() -> None:
+    # "ingest_bogus" is not itself in the denylist — it only matches via the
+    # "ingest_*" glob entry, proving the glob path (not just exact names) works.
+    assert "ingest_bogus" in _denylisted_tools(["ingest_bogus"])
+    assert "backfill_bogus" in _denylisted_tools(["backfill_bogus"])
