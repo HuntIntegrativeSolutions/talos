@@ -10,7 +10,7 @@ import fnmatch
 import json
 import os
 
-from talos.validators.capability_manifest import validate_manifest
+from talos.validators.capability_manifest import compute_manifest_hash, validate_manifest
 
 MANIFEST_PATH = os.path.join(
     os.path.dirname(__file__), "..", "..", "capabilities", "nexus", "manifest.json"
@@ -22,7 +22,6 @@ NEXUS_SOR_WRITE_DENYLIST = [
     "tag_annotate",
     "backfill_symbol_file_sources",
     "backfill_engineer_verified_sources",
-    "reconcile_descriptions",
     "add_rung_pattern",
     "ingest_factorytalk_csv",
     "ingest_quickdesigner_bindings",
@@ -84,3 +83,10 @@ def test_denylist_check_catches_a_glob_only_match() -> None:
     # "ingest_*" glob entry, proving the glob path (not just exact names) works.
     assert "ingest_bogus" in _denylisted_tools(["ingest_bogus"])
     assert "backfill_bogus" in _denylisted_tools(["backfill_bogus"])
+
+
+def test_manifest_content_hash_selfconsistent() -> None:
+    # Guards against manifest.json being edited without recomputing content_hash
+    # (capabilities/nexus/dispositions.md "content_hash convention").
+    manifest = _load_manifest()
+    assert compute_manifest_hash(manifest) == manifest["capability"]["content_hash"]

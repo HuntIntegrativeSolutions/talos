@@ -8,6 +8,8 @@ before any tool is ever granted (docs/contracts/capability-manifest.md).
 
 from __future__ import annotations
 
+import copy
+import hashlib
 import json
 import sys
 from dataclasses import dataclass, field
@@ -21,6 +23,21 @@ VALID_WRITE_KINDS = {"offline_artifact", "sim_only"}
 class ValidationResult:
     ok: bool
     errors: list[str] = field(default_factory=list)
+
+
+def compute_manifest_hash(manifest: dict) -> str:
+    """
+    Recompute capability.content_hash per the recipe documented in
+    capabilities/nexus/dispositions.md ("content_hash convention"): sha256 of the
+    manifest with capability.content_hash blanked, sorted keys, no whitespace,
+    UTF-8. Returns "sha256:<hex>" to match the stored field's prefix convention.
+    """
+    manifest_copy = copy.deepcopy(manifest)
+    manifest_copy["capability"]["content_hash"] = ""
+    digest = hashlib.sha256(
+        json.dumps(manifest_copy, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()
+    return f"sha256:{digest}"
 
 
 def validate_manifest(manifest: dict) -> ValidationResult:

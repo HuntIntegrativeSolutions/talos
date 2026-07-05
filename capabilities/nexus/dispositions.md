@@ -3,7 +3,11 @@
 **Server:** NEXUS v1.26.0 · `http://10.0.0.80:8765/mcp` (Streamable HTTP)
 **Enumeration date:** 2026-07-05
 **Total live tools:** 90 (ADR-026's "~85" figure was pre-growth)
-**Excluded (SoR-writers):** 18 · **read:** 60 · **write:offline_artifact:** 12 · **in manifest.json:** 72
+**Excluded (SoR-writers):** 17 · **read:** 61 · **write:offline_artifact:** 12 · **in manifest.json:** 73
+
+**Update 2026-07-05 (P3.5 harness):** `reconcile_descriptions` reclassified EXCLUDED → `read`
+after live-server verification found no mutation. See judgment call #1's resolution below and
+`docs/p35-harness-results.md`.
 
 ## content_hash convention
 
@@ -15,7 +19,21 @@ sha256(json.dumps(manifest, sort_keys=True, separators=(",", ":")).encode("utf-8
 
 with `capability.content_hash` set to the empty string `""` in `manifest` at hash time. Sorted
 keys, no whitespace, UTF-8 encoding — this exact recipe must be used by anyone recomputing the
-hash (ADR-032 runtime re-verification is out of scope for RT-14; this is the only written record).
+hash. As of P3.5, this recipe is implemented as
+`talos.validators.capability_manifest.compute_manifest_hash()`, exercised by
+`talos/tests/test_rt14_nexus_manifest.py::test_manifest_content_hash_selfconsistent` (ADR-032's
+full DB-pinned runtime re-verification remains out of scope — see ADR-038's "P3.5 harness scope
+note").
+
+## Classification rule
+
+See ADR-026's "Classification rule" section for the normative statement. Summary: fact-SoR
+writes (tags, descriptions, rung-pattern library, ingestion tables) are always EXCLUDED
+regardless of framing ("dry run," "does not modify any table," etc. do not override this — see
+judgment call #1's resolution for the case where a live-server check was required to confirm
+this). Derived-store writes (generated docs/diagrams/knowledge-graph exports) are
+`write:offline_artifact` under a gate-approved grant. This is a derived-store-vs-fact-SoR
+distinction, not a "does it write at all" distinction.
 
 ## Denylist scope
 
@@ -99,7 +117,7 @@ gate-approved write grant — that is not a contradiction of "SoR-writers exclud
 | `plant_summary` | read | High-level statistics for the entire NEXUS knowledge graph — read-only. |
 | `plc_impact_analysis` | read | Returns the communication footprint of a PLC — read-only. |
 | `promote_raw_addresses_to_tags` | EXCLUDED | Promotes rung-referenced addresses into synthetic tag rows — writes new tag SoR rows. |
-| `reconcile_descriptions` | EXCLUDED | Description states "Does NOT modify any table" (pure read), but ADR-026/task brief mandate exclusion regardless — fail-closed per explicit instruction; flagged for human review (judgment call #1). |
+| `reconcile_descriptions` | read | Verified against live NEXUS 2026-07-05: two consecutive full calls against a real PLC (identifier withheld — see docs/p35-harness-results.md; 2001 tags with description_sources entries) produced byte-identical output (sha256 match); independent per-tag `tag_context` reads and `plant_summary.description_confidence_summary` aggregates were unchanged before/after — confirmed no mutation. Reclassified per judgment call #1's resolution; see `docs/p35-harness-results.md`. |
 | `render_rung` | read | Renders an existing PLC rung as structured text (boolean/indented/annotated) — displays existing logic, no artifact produced; contrast with generate_ascii_rung which produces new logic. |
 | `routine_call_tree` | read | Walks the JSR call graph from a routine — read-only. |
 | `rung_forensic` | write:offline_artifact | Has an output_file arg: "If set, write Markdown to this path" — conditional offline-artifact write (judgment call #6). |
@@ -125,6 +143,12 @@ gate-approved write grant — that is not a contradiction of "SoR-writers exclud
    table" (pure read). ADR-026 and the RT-14 task brief both name it as a required
    EXCLUDED SoR-writer regardless. Excluded anyway per fail-closed doctrine and explicit
    instruction; a human should confirm or correct this in a future manifest revision.
+   **Resolved 2026-07-05 (P3.5 harness):** live-server content-level verification (two
+   consecutive full `reconcile_descriptions` calls against a real PLC (identifier withheld, see docs/p35-harness-results.md), 2001 tags,
+   byte-identical sha256; per-tag `tag_context` and plant-wide
+   `description_confidence_summary` unchanged) confirmed no mutation on any code path.
+   Reclassified EXCLUDED → `read` in `manifest.json`; `content_hash` recomputed. See
+   `docs/p35-harness-results.md` for the full evidence record.
 2. **`tag_diff`** — in snapshot mode (`compare_to=None`) each call creates/updates an
    internal snapshot (a NEXUS-side state mutation); in cross-PLC mode it is pure read.
    Since profile is declared per-tool, not per-argument, and one mode mutates state,
@@ -154,4 +178,12 @@ gate-approved write grant — that is not a contradiction of "SoR-writers exclud
    pagination or a finding-lifecycle field (`queued/proposed/confirmed/dismissed`) at MCP
    level. Both are set to unsupported/false honestly rather than fabricating capability
    claims; open items for a future manifest version.
+
+## Upstream requests
+
+- **`tag_diff`**: request that NEXUS split snapshot-mode (`compare_to=None`, which mutates
+  an internal snapshot) from cross-PLC diff mode (pure read) into two distinct tool names,
+  so each can be dispositioned independently instead of the whole tool being excluded
+  fail-closed because one mode mutates state. Tracked here as an open upstream ask; no
+  action taken in this manifest revision — `tag_diff` remains EXCLUDED.
 

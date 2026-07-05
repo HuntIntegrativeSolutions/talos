@@ -3,7 +3,7 @@
   "capability": {
     "name": "nexus",
     "version": "1.26.0",
-    "content_hash": "sha256:58056d9406b3b09555478f1d39c755408ed9bdabe0a9eefc095092ed9203cf9e"
+    "content_hash": "sha256:50c6932a1e5255e91d28848d2cbdec70af4b5f6a71d878de81035a79290f90fe"
   },
   "tools": [
     {
@@ -294,6 +294,11 @@
     },
     {
       "name": "plc_impact_analysis",
+      "profile": "read",
+      "safety": false
+    },
+    {
+      "name": "reconcile_descriptions",
       "profile": "read",
       "safety": false
     },
