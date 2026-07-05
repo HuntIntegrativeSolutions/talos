@@ -1,0 +1,2614 @@
+{
+  "jsonrpc": "2.0",
+  "id": 3,
+  "result": {
+    "tools": [
+      {
+        "name": "migration_readiness",
+        "description": "Return migration readiness details for a PLC.",
+        "inputSchema": {
+          "properties": {
+            "plc_id": {
+              "title": "Plc Id",
+              "type": "string"
+            }
+          },
+          "required": [
+            "plc_id"
+          ],
+          "title": "migration_readinessArguments",
+          "type": "object"
+        }
+      },
+      {
+        "name": "migration_readiness_all",
+        "description": "Return compact migration readiness summaries for all indexed PLCs.",
+        "inputSchema": {
+          "properties": {
+            "plc_type": {
+              "default": null,
+              "title": "Plc Type",
+              "type": "string"
+            }
+          },
+          "title": "migration_readiness_allArguments",
+          "type": "object"
+        },
+        "outputSchema": {
+          "properties": {
+            "result": {
+              "items": {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              "title": "Result",
+              "type": "array"
+            }
+          },
+          "required": [
+            "result"
+          ],
+          "title": "migration_readiness_allOutput",
+          "type": "object"
+        }
+      },
+      {
+        "name": "tag_diff",
+        "description": "Compare tag databases between two PLCs, or track changes via snapshots.\n\n    If compare_to is another PLC ID: side-by-side comparison of all tags.\n    Useful for migration verification (does the new CLX have all the PLC-5 tags?).\n\n    If compare_to is None: compare current state against the last saved snapshot.\n    First call creates the snapshot and returns a message. Subsequent calls show diffs.\n    Each call updates the snapshot to the current state.\n\n    Args:\n        plc_id: primary PLC identifier\n        compare_to: other PLC ID for cross-PLC mode, or None for snapshot mode\n\n    Returns dict with mode, plc_a, plc_b, tags_only_in_a, tags_only_in_b,\n    tags_in_both, description_changes, type_changes, and summary counts.\n    ",
+        "inputSchema": {
+          "properties": {
+            "plc_id": {
+              "title": "Plc Id",
+              "type": "string"
+            },
+            "compare_to": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Compare To"
+            }
+          },
+          "required": [
+            "plc_id"
+          ],
+          "title": "tag_diffArguments",
+          "type": "object"
+        }
+      },
+      {
+        "name": "migration_gap_analysis",
+        "description": "Analyze what is required to migrate a PLC to ControlLogix.\n\n    If target_plc_id is provided, cross-compares source and target to find\n    what has been migrated and what is still missing.\n\n    If target_plc_id is None, analyzes the source PLC alone and produces\n    a migration requirements list with an estimated effort rating.\n\n    Args:\n        source_plc_id: the PLC being migrated (e.g. 'CH880001')\n        target_plc_id: optional ControlLogix migration target PLC ID\n\n    Returns a dict with: source info, I/O mapping, complexity metrics,\n    communication links, PlantPAx equivalents needed, description quality,\n    HMI impact, estimated effort, and optional target tag mapping.\n    ",
+        "inputSchema": {
+          "properties": {
+            "source_plc_id": {
+              "title": "Source Plc Id",
+              "type": "string"
+            },
+            "target_plc_id": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Target Plc Id"
+            }
+          },
+          "required": [
+            "source_plc_id"
+          ],
+          "title": "migration_gap_analysisArguments",
+          "type": "object"
+        }
+      },
+      {
+        "name": "tag_where_used",
+        "description": "Return every routine/rung where a tag is used within a single PLC.\n\n    tag_name supports SQL LIKE wildcards (use % not *).\n    Array members (e.g. MyTag[0], MyTag[1]) are automatically included \u2014\n    pass the base name without wildcards and both the base tag and all\n    indexed members are returned.\n    For UDT sub-members, append a dot wildcard: tag_name=\"MyTag.%\"\n\n    Returns a list of dicts with keys:\n        routine, program, rung_number, usage_type, instruction\n    Returns [] if tag_name is empty or not found.\n    ",
+        "inputSchema": {
+          "properties": {
+            "plc_id": {
+              "title": "Plc Id",
+              "type": "string"
+            },
+            "tag_name": {
+              "title": "Tag Name",
+              "type": "string"
+            }
+          },
+          "required": [
+            "plc_id",
+            "tag_name"
+          ],
+          "title": "tag_where_usedArguments",
+          "type": "object"
+        },
+        "outputSchema": {
+          "properties": {
+            "result": {
+              "items": {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              "title": "Result",
+              "type": "array"
+            }
+          },
+          "required": [
+            "result"
+          ],
+          "title": "tag_where_usedOutput",
+          "type": "object"
+        }
+      },
+      {
+        "name": "tag_find_plant_wide",
+        "description": "Search for tags across all PLCs.\n\n    tag_pattern uses * as the wildcard character (converted to % for SQL LIKE).\n    Results are limited to 500 rows.\n\n    Returns a list of dicts with keys:\n        plc_id, name, data_type, scope, description\n\n    If the result set exceeds 500 rows, a trailing dict\n    {\"truncated\": true, \"total_hint\": N} is appended.\n    ",
+        "inputSchema": {
+          "properties": {
+            "tag_pattern": {
+              "title": "Tag Pattern",
+              "type": "string"
+            }
+          },
+          "required": [
+            "tag_pattern"
+          ],
+          "title": "tag_find_plant_wideArguments",
+          "type": "object"
+        },
+        "outputSchema": {
+          "properties": {
+            "result": {
+              "anyOf": [
+                {
+                  "items": {
+                    "additionalProperties": true,
+                    "type": "object"
+                  },
+                  "type": "array"
+                },
+                {
+                  "additionalProperties": true,
+                  "type": "object"
+                }
+              ],
+              "title": "Result"
+            }
+          },
+          "required": [
+            "result"
+          ],
+          "title": "tag_find_plant_wideOutput",
+          "type": "object"
+        }
+      },
+      {
+        "name": "tag_search",
+        "description": "Fuzzy/multi-word tag search using FTS5 trigram index.\n\n    Searches both tag names and descriptions. All words in the query must\n    match (AND logic). Words shorter than 3 characters are ignored.\n\n    Args:\n        query:  One or more search terms, e.g. \"conveyor motor\" or \"emergency stop\"\n        plc_id: Optional PLC filter, e.g. \"CH530001\"\n        limit:  Maximum results to return (default 50)\n\n    Returns a dict with keys:\n        query, result_count, truncated, results\n\n    Each result has: plc_id, name, data_type, scope, description, tag_type\n    ",
+        "inputSchema": {
+          "properties": {
+            "query": {
+              "title": "Query",
+              "type": "string"
+            },
+            "plc_id": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Plc Id"
+            },
+            "limit": {
+              "default": 50,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          "required": [
+            "query"
+          ],
+          "title": "tag_searchArguments",
+          "type": "object"
+        }
+      },
+      {
+        "name": "tag_context",
+        "description": "Return a unified 360\u00b0 view of a single tag within a PLC.\n\n    Combines tag definition, all read/write references, producer/consumer\n    links, MSG links, and AOI instance usages into one response.\n\n    Args:\n        plc_id:   The PLC to search (e.g. 'CH530001').\n        tag_name: Exact tag name (no wildcards).\n\n    Returns a dict with keys: definition, reads, writes, produced_consumed,\n    msg_links, aoi_instances, summary.\n    If the tag is not found, returns {\"error\": \"tag not found\", ...}.\n    ",
+        "inputSchema": {
+          "properties": {
+            "plc_id": {
+              "title": "Plc Id",
+              "type": "string"
+            },
+            "tag_name": {
+              "title": "Tag Name",
+              "type": "string"
+            }
+          },
+          "required": [
+            "plc_id",
+            "tag_name"
+          ],
+          "title": "tag_contextArguments",
+          "type": "object"
+        }
+      },
+      {
+        "name": "tag_annotate",
+        "description": "Update a tag's description and/or confidence level.\n\n    Use this to correct wrong descriptions, verify good ones, or flag suspects.\n\n    Args:\n        plc_id:               PLC to update (e.g. 'CH530001').\n        tag_name:             Exact tag name.\n        new_description:      New description text (optional).\n        confidence:           New confidence tier (optional). One of:\n                              imported_unverified, imported_likely, verified,\n                              suspected_wrong, no_description.\n        verified_by:          Name of person verifying (optional).\n        verified_at:          ISO 8601 timestamp of verification (optional).\n                              Defaults to current UTC time when confidence='verified'.\n        verification_method:  Short description of the workflow used, e.g.\n                              \"tag_suspect_descriptions sweep + rung citation\".\n        coverage_notes:       Free-text field for known limitations at verification\n                              time, e.g. \"B3 not imported in symbol export\".\n\n    Returns the updated tag record as a dict, or an error dict.\n    ",
+        "inputSchema": {
+          "properties": {
+            "plc_id": {
+              "title": "Plc Id",
+              "type": "string"
+            },
+            "tag_name": {
+              "title": "Tag Name",
+              "type": "string"
+            },
+            "new_description": {
+              "default": null,
+              "title": "New Description",
+              "type": "string"
+            },
+            "confidence": {
+              "default": null,
+              "title": "Confidence",
+              "type": "string"
+            },
+            "verified_by": {
+              "default": null,
+              "title": "Verified By",
+              "type": "string"
+            },
+            "verified_at": {
+              "default": null,
+              "title": "Verified At",
+              "type": "string"
+            },
+            "verification_method": {
+              "default": null,
+              "title": "Verification Method",
+              "type": "string"
+            },
+            "coverage_notes": {
+              "default": null,
+              "title": "Coverage Notes",
+              "type": "string"
+            }
+          },
+          "required": [
+            "plc_id",
+            "tag_name"
+          ],
+          "title": "tag_annotateArguments",
+          "type": "object"
+        }
+      },
+      {
+        "name": "verification_summary",
+        "description": "List PLCs that have at least one verified tag, with verification metadata.\n\n    Returns one row per PLC showing the earliest verification date, verifier,\n    method, coverage notes, and counts of verified vs total active tags.\n\n    Args:\n        plc_id: Optional PLC filter. If omitted, returns all PLCs with verified tags.\n\n    Returns a list of dicts, each with:\n        plc_id, verified_tag_count, total_tag_count, earliest_verified_at,\n        verified_by (most common), verification_method (most common),\n        coverage_notes (concatenated, distinct).\n    ",
+        "inputSchema": {
+          "properties": {
+            "plc_id": {
+              "default": null,
+              "title": "Plc Id",
+              "type": "string"
+            }
+          },
+          "title": "verification_summaryArguments",
+          "type": "object"
+        }
+      },
+      {
+        "name": "backfill_symbol_file_sources",
+        "description": "Backfill description_sources table from existing symbol-file tag descriptions.\n\n    Populates the multi-source reconciliation layer with symbol_file entries\n    (base_confidence=0.2) drawn from tags with source='symbol_import'.\n    Tags with NULL or empty descriptions are skipped.\n\n    Idempotent \u2014 safe to call multiple times.  Does NOT modify the tags table.\n\n    Args:\n        plc_id: Optional PLC filter (e.g. 'CH550003').  None processes all PLCs.\n\n    Returns dict with: plc_id_filter, rows_examined, rows_inserted,\n    rows_skipped_existing.\n    ",
+        "inputSchema": {
+          "properties": {
+            "plc_id": {
+              "default": null,
+              "title": "Plc Id",
+              "type": "string"
+            }
+          },
+          "title": "backfill_symbol_file_sourcesArguments",
+          "type": "object"
+        }
+      },
+      {
+        "name": "backfill_engineer_verified_sources",
+        "description": "Backfill description_sources table from engineer-verified tag descriptions.\n\n    Populates the multi-source reconciliation layer with engineer_verified\n    entries (base_confidence=0.9) drawn from tags with\n    description_confidence='verified'.  Preserves original verified_by and\n    verified_at provenance.\n\n    Idempotent \u2014 safe to call multiple times.  Does NOT modify the tags table.\n\n    Args:\n        plc_id: Optional PLC filter (e.g. 'CH550003').  None processes all PLCs.\n\n    Returns dict with: plc_id_filter, rows_examined, rows_inserted,\n    rows_skipped_existing.\n    ",
+        "inputSchema": {
+          "properties": {
+            "plc_id": {
+              "default": null,
+              "title": "Plc Id",
+              "type": "string"
+            }
+          },
+          "title": "backfill_engineer_verified_sourcesArguments",
+          "type": "object"
+        }
+      },
+      {
+        "name": "reconcile_descriptions",
+        "description": "Consolidate multi-source tag descriptions into a unified reconciliation view.\n\n    For each tag in plc_id with at least one description_sources entry, returns\n    the winning description (highest base_confidence source), all contributing\n    sources, and a disagreement flag when two sources have conflicting text.\n\n    Disagreement detection uses normalized comparison (lowercase, collapsed\n    whitespace, trailing punctuation stripped).  Phrasing variance and scope\n    variance are not flagged \u2014 only exact normalized mismatches.\n\n    Tags with no description_sources entries are not included (they remain in\n    tags.description-only mode and are unaffected by this tool).\n\n    Does NOT modify any table.\n\n    Args:\n        plc_id:    PLC to reconcile (e.g. 'CH550003').\n        tag_name:  Optional single tag to reconcile.  None returns all tags\n                   in plc_id with description_sources entries.\n\n    Returns a single reconciliation dict (tag_name given) or list of dicts\n    (tag_name omitted).  Each dict has: plc_id, tag_name,\n    consolidated_description, consolidated_source, consolidated_confidence,\n    source_count, all_sources, disagreement_flag, disagreement_details.\n    ",
+        "inputSchema": {
+          "properties": {
+            "plc_id": {
+              "title": "Plc Id",
+              "type": "string"
+            },
+            "tag_name": {
+              "default": null,
+              "title": "Tag Name",
+              "type": "string"
+            }
+          },
+          "required": [
+            "plc_id"
+          ],
+          "title": "reconcile_descriptionsArguments",
+          "type": "object"
+        },
+        "outputSchema": {
+          "properties": {
+            "result": {
+              "anyOf": [
+                {
+                  "additionalProperties": true,
+                  "type": "object"
+                },
+                {
+                  "items": {},
+                  "type": "array"
+                }
+              ],
+              "title": "Result"
+            }
+          },
+          "required": [
+            "result"
+          ],
+          "title": "reconcile_descriptionsOutput",
+          "type": "object"
+        }
+      },
+      {
+        "name": "tag_suspect_descriptions",
+        "description": "Find tags where descriptions may be unreliable.\n\n    Returns plant tags (not library) with suspect confidence tiers.\n    Useful for auditing tag descriptions that need human review.\n\n    Args:\n        plc_id:            Optional PLC filter (e.g. 'CH730001').\n        confidence_filter: Optional filter to a single tier\n                           (e.g. 'imported_unverified', 'no_description', 'suspected_wrong').\n\n    Returns a list of dicts with: plc_id, tag_name, description,\n    description_confidence, description_source, programs_used (list of str).\n    Sorted: suspected_wrong first, then imported_unverified, then no_description.\n    Limited to 100 results.\n    ",
+        "inputSchema": {
+          "properties": {
+            "plc_id": {
+              "default": null,
+              "title": "Plc Id",
+              "type": "string"
+            },
+            "confidence_filter": {
+              "default": null,
+              "title": "Confidence Filter",
+              "type": "string"
+            }
+          },
+          "title": "tag_suspect_descriptionsArguments",
+          "type": "object"
+        }
+      },
+      {
+        "name": "tag_screen_usage",
+        "description": "Find all HMI screens that display a given PLC tag.\n\n    Args:\n        plc_id:   The PLC whose tag to search for.\n        tag_name: Tag name or PLC-5 address (supports SQL LIKE wildcards).\n\n    Returns list of dicts: screen_name, screen_plc_id, element_name,\n    binding_type, expression.\n    ",
+        "inputSchema": {
+          "properties": {
+            "plc_id": {
+              "title": "Plc Id",
+              "type": "string"
+            },
+            "tag_name": {
+              "title": "Tag Name",
+              "type": "string"
+            }
+          },
+          "required": [
+            "plc_id",
+            "tag_name"
+          ],
+          "title": "tag_screen_usageArguments",
+          "type": "object"
+        }
+      },
+      {
+        "name": "tag_full_chain",
+        "description": "Trace a tag from PLC logic through HMI displays \u2014 the complete picture.\n\n    Combines:\n    1. Tag definition (data type, scope, description, confidence)\n    2. PLC rung usage (programs, routines, rung numbers)\n    3. HMI screen bindings (which screens display this tag)\n    4. Produced/consumed cross-PLC links\n\n    Args:\n        plc_id:   PLC to search (e.g. 'CH530001').\n        tag_name: Exact tag name or PLC-5 address.\n\n    Returns a dict with keys: definition, plc_usage, hmi_bindings,\n    produced_consumed, summary.\n    ",
+        "inputSchema": {
+          "properties": {
+            "plc_id": {
+              "title": "Plc Id",
+              "type": "string"
+            },
+            "tag_name": {
+              "title": "Tag Name",
+              "type": "string"
+            }
+          },
+          "required": [
+            "plc_id",
+            "tag_name"
+          ],
+          "title": "tag_full_chainArguments",
+          "type": "object"
+        }
+      },
+      {
+        "name": "find_orphan_tags",
+        "description": "Tags on a PLC with no description, no vault note, and no rung comment \u2014 a documentation queue.\n\n    Returns a list of dicts with keys:\n        tag_name, data_type, description_confidence, usage_count\n    Ordered by usage_count descending.\n    ",
+        "inputSchema": {
+          "properties": {
+            "plc_id": {
+              "title": "Plc Id",
+              "type": "string"
+            },
+            "min_usage": {
+              "default": 1,
+              "title": "Min Usage",
+              "type": "integer"
+            }
+          },
+          "required": [
+            "plc_id"
+          ],
+          "title": "find_orphan_tagsArguments",
+          "type": "object"
+        },
+        "outputSchema": {
+          "properties": {
+            "result": {
+              "items": {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              "title": "Result",
+              "type": "array"
+            }
+          },
+          "required": [
+            "result"
+          ],
+          "title": "find_orphan_tagsOutput",
+          "type": "object"
+        }
+      },
+      {
+        "name": "rung_search",
+        "description": "Full-text search across rung content and comments using SQL LIKE.\n\n    Address normalization: if the query looks like a PLC-5 B-file or N-file\n    address, it is automatically expanded to match both the shorthand form\n    (B13/913, N7/1609) and the canonical word:bit form (B13:57/1, N7:100/9).\n    This is transparent to the caller \u2014 either form finds rungs regardless\n    of which form was written in the original PC5 source file.\n\n    Args:\n        query:            Search string. Accepts SQL LIKE wildcards (%), plain\n                          text substring, or any PLC-5/CLX address in either\n                          shorthand (B13/913) or canonical (B13:57/1) notation.\n        plc_id:           Restrict to one PLC (None = all PLCs).\n        include_disabled: Include disabled rungs (default False).\n\n    Returns up to 200 results. If truncated, the last entry has\n    {\"truncated\": true}. Each result has:\n        plc_id, program, routine, rung_number, content_snippet,\n        comment_snippet, disabled\n    ",
+        "inputSchema": {
+          "properties": {
+            "query": {
+              "title": "Query",
+              "type": "string"
+            },
+            "plc_id": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Plc Id"
+            },
+            "include_disabled": {
+              "default": false,
+              "title": "Include Disabled",
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "query"
+          ],
+          "title": "rung_searchArguments",
+          "type": "object"
+        },
+        "outputSchema": {
+          "properties": {
+            "result": {
+              "items": {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              "title": "Result",
+              "type": "array"
+            }
+          },
+          "required": [
+            "result"
+          ],
+          "title": "rung_searchOutput",
+          "type": "object"
+        }
+      },
+      {
+        "name": "rung_forensic",
+        "description": "Raw rung extraction for forensic analysis. No classification, no interpretation.\n\n    Exactly one of rung_numbers, addresses, or output_targets must be provided.\n\n    Mode 1 (rung_numbers): extract specific rungs by number.\n    Mode 2 (addresses): find all rungs referencing the given addresses, then extract.\n      Mode 2 also produces a per-address usage inventory (XIC/XIO/write counts).\n    Mode 3 (output_targets): find all rungs that WRITE to the given addresses.\n      Queries address_xref with usage_type='write'. Returns one rung per unique\n      write rung (address_xref may have multiple rows per rung for the same address).\n      Each rung record includes a writes_to field listing which targets it matched.\n      Emits warnings for targets with no write references (possible dead outputs).\n      Mode 4 (intent-based descriptor search): deferred.\n\n    Args:\n        plc_id:               PLC identifier (e.g. 'CH550003')\n        rung_numbers:         Mode 1 \u2014 list of rung numbers (int) to extract\n        addresses:            Mode 2 \u2014 list of PLC-5/CLX address strings (read OR write)\n        output_targets:       Mode 3 \u2014 list of address strings to anchor on write references\n        include_tag_records:  Pull tags table record for every address in extracted rungs\n        include_rung_comments: Include rung comment field in output\n        output_file:          If set, write Markdown to this path\n        overwrite:            Allow overwriting output_file if it already exists\n        render_mode:          Optional render mode for each rung \u2014 '' (off), 'boolean',\n                              'indented', or 'annotated'.  When set, each rung record\n                              includes rendered_content in the Markdown output.\n\n    Returns dict with:\n        document:      Markdown string\n        mode:          1, 2, or 3\n        rung_count:    number of rungs extracted (not_found excluded)\n        address_count: unique addresses referenced across all rungs\n        tag_hits:      addresses found in tags table\n        tag_misses:    addresses not in tags table\n        warnings:      list[str] \u2014 Mode 3 warnings (dead outputs, etc.)\n    ",
+        "inputSchema": {
+          "properties": {
+            "plc_id": {
+              "title": "Plc Id",
+              "type": "string"
+            },
+            "rung_numbers": {
+              "anyOf": [
+                {
+                  "items": {},
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Rung Numbers"
+            },
+            "addresses": {
+              "anyOf": [
+                {
+                  "items": {},
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Addresses"
+            },
+            "output_targets": {
+              "anyOf": [
+                {
+                  "items": {},
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Output Targets"
+            },
+            "include_tag_records": {
+              "default": true,
+              "title": "Include Tag Records",
+              "type": "boolean"
+            },
+            "include_rung_comments": {
+              "default": true,
+              "title": "Include Rung Comments",
+              "type": "boolean"
+            },
+            "output_file": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Output File"
+            },
+            "overwrite": {
+              "default": false,
+              "title": "Overwrite",
+              "type": "boolean"
+            },
+            "render_mode": {
+              "default": "",
+              "title": "Render Mode",
+              "type": "string"
+            }
+          },
+          "required": [
+            "plc_id"
+          ],
+          "title": "rung_forensicArguments",
+          "type": "object"
+        }
+      },
+      {
+        "name": "render_rung",
+        "description": "Render a PLC rung as structured text.\n\n    Modes:\n    - 'boolean':   one AND/OR expression per output \u2014 best for analysis and reverse engineering\n    - 'indented':  tree-indented with branch markers \u2014 best for visual understanding\n    - 'annotated': indented with tag descriptions inline \u2014 best for documentation\n\n    Args:\n        plc_id:      PLC identifier (e.g. 'CH510002')\n        rung_number: Rung number to render\n        routine:     Optional routine name to disambiguate when the same rung number\n                     appears in multiple routines.  Leave blank to use the first match.\n        mode:        One of 'boolean', 'indented', 'annotated'\n\n    Returns:\n        JSON string with keys: plc_id, rung_number, routine, program, mode, rendered,\n        outputs (list of {address, type, expression, description}), raw_content, comment.\n    ",
+        "inputSchema": {
+          "properties": {
+            "plc_id": {
+              "title": "Plc Id",
+              "type": "string"
+            },
+            "rung_number": {
+              "title": "Rung Number",
+              "type": "integer"
+            },
+            "routine": {
+              "default": "",
+              "title": "Routine",
+              "type": "string"
+            },
+            "mode": {
+              "default": "boolean",
+              "title": "Mode",
+              "type": "string"
+            }
+          },
+          "required": [
+            "plc_id",
+            "rung_number"
+          ],
+          "title": "render_rungArguments",
+          "type": "object"
+        },
+        "outputSchema": {
+          "properties": {
+            "result": {
+              "title": "Result",
+              "type": "string"
+            }
+          },
+          "required": [
+            "result"
+          ],
+          "title": "render_rungOutput",
+          "type": "object"
+        }
+      },
+      {
+        "name": "routine_call_tree",
+        "description": "Walk the JSR call graph from a starting routine and return the call tree.\n\n    Args:\n        plc_id:        The PLC to search.\n        routine_name:  Starting routine name (e.g. 'MainRoutine').\n        max_depth:     Maximum recursion depth (default 5).\n\n    Returns a dict with keys: root, plc_id, tree, stats.\n    stats includes: total_routines, max_depth_reached, cycles_detected.\n    ",
+        "inputSchema": {
+          "properties": {
+            "plc_id": {
+              "title": "Plc Id",
+              "type": "string"
+            },
+            "routine_name": {
+              "title": "Routine Name",
+              "type": "string"
+            },
+            "max_depth": {
+              "default": 5,
+              "title": "Max Depth",
+              "type": "integer"
+            }
+          },
+          "required": [
+            "plc_id",
+            "routine_name"
+          ],
+          "title": "routine_call_treeArguments",
+          "type": "object"
+        }
+      },
+      {
+        "name": "get_plc5_instruction_reference",
+        "description": "Return the semantic definition, operands, timing, patterns, and gotchas\n    for a PLC-5 / RSLogix 5 instruction.\n\n    Call this when analyzing PLC-5 ladder logic and you need to understand\n    what an instruction does, how its operands work, or what timing behavior\n    to expect.\n\n    Args:\n        mnemonic: Instruction name (e.g., 'TON', 'JSR', 'PID', 'BST').\n    ",
+        "inputSchema": {
+          "properties": {
+            "mnemonic": {
+              "title": "Mnemonic",
+              "type": "string"
+            }
+          },
+          "required": [
+            "mnemonic"
+          ],
+          "title": "get_plc5_instruction_referenceArguments",
+          "type": "object"
+        }
+      },
+      {
+        "name": "get_rung_pattern",
+        "description": "Return a validated rung pattern template with a real plant example.\n\n    Use this to understand common PLC logic patterns or to construct new\n    rungs based on proven templates.\n\n    Args:\n        pattern_name: Pattern key (e.g., 'timer_on_delay_basic',\n                      'branch_setpoint_selector', 'clx_plantpax_motor_config').\n    ",
+        "inputSchema": {
+          "properties": {
+            "pattern_name": {
+              "title": "Pattern Name",
+              "type": "string"
+            }
+          },
+          "required": [
+            "pattern_name"
+          ],
+          "title": "get_rung_patternArguments",
+          "type": "object"
+        }
+      },
+      {
+        "name": "search_rung_patterns",
+        "description": "Search the rung pattern library by natural language description.\n\n    Use this when you know what you want a rung to DO but don't know\n    the pattern name.\n\n    Args:\n        query: Natural language (e.g., 'select between two setpoints',\n               'clamp PID output', 'detect rising edge').\n    ",
+        "inputSchema": {
+          "properties": {
+            "query": {
+              "title": "Query",
+              "type": "string"
+            }
+          },
+          "required": [
+            "query"
+          ],
+          "title": "search_rung_patternsArguments",
+          "type": "object"
+        }
+      },
+      {
+        "name": "generate_ascii_rung",
+        "description": "Generate a complete, ready-to-paste ASCII rung by filling a pattern\n    template with specific addresses.\n\n    CRITICAL: Before calling this, verify all addresses against NEXUS using\n    tag_find_plant_wide to ensure no conflicts.\n\n    Args:\n        pattern_name: Pattern to use (e.g., 'timer_on_delay_basic').\n        substitutions: Placeholder replacements, e.g.:\n            {'condition': 'XIC B3/17', 'n': '50', 'timebase': '1.0',\n             'preset': '300'}\n    ",
+        "inputSchema": {
+          "properties": {
+            "pattern_name": {
+              "title": "Pattern Name",
+              "type": "string"
+            },
+            "substitutions": {
+              "additionalProperties": true,
+              "title": "Substitutions",
+              "type": "object"
+            }
+          },
+          "required": [
+            "pattern_name",
+            "substitutions"
+          ],
+          "title": "generate_ascii_rungArguments",
+          "type": "object"
+        }
+      },
+      {
+        "name": "add_rung_pattern",
+        "description": "Add a new validated rung pattern to the library for future reuse.\n\n    Call this when you encounter a rung worth preserving as a reusable\n    template during plant analysis work. Persists to\n    ~/.nexus/custom_patterns.json.\n\n    Args:\n        pattern_name: Unique key (e.g., 'analog_scaling_with_clamp').\n        intent: What the pattern does in plain English.\n        platform: 'PLC-5' or 'ControlLogix'.\n        ascii_template: Template with {placeholder} substitutions.\n        parameters: Dict describing each placeholder.\n        plant_source: Where this was found (e.g., 'CH880001 Rung 115').\n        plant_ascii: The actual rung content from the plant.\n        notes: Engineering notes.\n    ",
+        "inputSchema": {
+          "properties": {
+            "pattern_name": {
+              "title": "Pattern Name",
+              "type": "string"
+            },
+            "intent": {
+              "title": "Intent",
+              "type": "string"
+            },
+            "platform": {
+              "title": "Platform",
+              "type": "string"
+            },
+            "ascii_template": {
+              "title": "Ascii Template",
+              "type": "string"
+            },
+            "parameters": {
+              "additionalProperties": true,
+              "title": "Parameters",
+              "type": "object"
+            },
+            "plant_source": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Plant Source"
+            },
+            "plant_ascii": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Plant Ascii"
+            },
+            "notes": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Notes"
+            }
+          },
+          "required": [
+            "pattern_name",
+            "intent",
+            "platform",
+            "ascii_template",
+            "parameters"
+          ],
+          "title": "add_rung_patternArguments",
+          "type": "object"
+        }
+      },
+      {
+        "name": "semantic_rung_search",
+        "description": "Natural-language semantic search over PLC ladder rungs using local embeddings.\n\n    Finds rungs by meaning, not exact tag match \u2014 e.g.\n    'where is the main conveyor interlock unlatched' surfaces OTU/interlock rungs\n    ranked by semantic similarity to the query.\n\n    Requires ``nexus patterns embed`` to have been run for the target PLC, and\n    the optional dependencies to be installed:\n        pip install sentence-transformers sqlite-vec\n\n    Args:\n        query:   Natural-language description of the logic you are looking for.\n        plc_id:  Optional PLC filter (e.g. 'Dryer_PLC', 'CH550003').\n                 When omitted, all indexed PLCs are searched.\n        limit:   Maximum results to return (capped at 50; default 20).\n\n    Returns a dict with:\n        - results: list of {rung_id, plc_id, routine, rung_number,\n                             content_snippet, score}\n          ordered by ascending distance (most similar first).\n        - count: number of results returned.\n        - query: the original query string.\n        - plc_id: the filter applied (None = all PLCs).\n        - available: False (with a note) when deps are missing or vec tables\n          have not been populated.\n    ",
+        "inputSchema": {
+          "properties": {
+            "query": {
+              "title": "Query",
+              "type": "string"
+            },
+            "plc_id": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Plc Id"
+            },
+            "limit": {
+              "default": 20,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          "required": [
+            "query"
+          ],
+          "title": "semantic_rung_searchArguments",
+          "type": "object"
+        }
+      },
+      {
+        "name": "ingest_factorytalk_csv",
+        "description": "Ingest a FactoryTalk View ME CSV tag database export into HMI tables.",
+        "inputSchema": {
+          "properties": {
+            "csv_path": {
+              "title": "Csv Path",
+              "type": "string"
+            },
+            "project_name": {
+              "title": "Project Name",
+              "type": "string"
+            },
+            "plc_id": {
+              "default": "",
+              "title": "Plc Id",
+              "type": "string"
+            },
+            "commissioned": {
+              "default": "unknown",
+              "title": "Commissioned",
+              "type": "string"
+            }
+          },
+          "required": [
+            "csv_path",
+            "project_name"
+          ],
+          "title": "ingest_factorytalk_csvArguments",
+          "type": "object"
+        },
+        "outputSchema": {
+          "properties": {
+            "result": {
+              "title": "Result",
+              "type": "string"
+            }
+          },
+          "required": [
+            "result"
+          ],
+          "title": "ingest_factorytalk_csvOutput",
+          "type": "object"
+        }
+      },
+      {
+        "name": "ingest_quickdesigner_bindings",
+        "description": "Ingest QuickDesigner JSON bindings into hmi_projects + hmi_tag_bindings.",
+        "inputSchema": {
+          "properties": {
+            "plc_id": {
+              "title": "Plc Id",
+              "type": "string"
+            },
+            "parser_output_path": {
+              "title": "Parser Output Path",
+              "type": "string"
+            },
+            "commissioned": {
+              "default": "unknown",
+              "title": "Commissioned",
+              "type": "string"
+            }
+          },
+          "required": [
+            "plc_id",
+            "parser_output_path"
+          ],
+          "title": "ingest_quickdesigner_bindingsArguments",
+          "type": "object"
+        },
+        "outputSchema": {
+          "properties": {
+            "result": {
+              "title": "Result",
+              "type": "string"
+            }
+          },
+          "required": [
+            "result"
+          ],
+          "title": "ingest_quickdesigner_bindingsOutput",
+          "type": "object"
+        }
+      },
+      {
+        "name": "hmi_search_by_address",
+        "description": "Find every HMI binding across all projects referencing a given PLC address.",
+        "inputSchema": {
+          "properties": {
+            "plc_address": {
+              "title": "Plc Address",
+              "type": "string"
+            },
+            "plc_id": {
+              "default": "",
+              "title": "Plc Id",
+              "type": "string"
+            },
+            "commissioned_only": {
+              "default": false,
+              "title": "Commissioned Only",
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "plc_address"
+          ],
+          "title": "hmi_search_by_addressArguments",
+          "type": "object"
+        },
+        "outputSchema": {
+          "properties": {
+            "result": {
+              "title": "Result",
+              "type": "string"
+            }
+          },
+          "required": [
+            "result"
+          ],
+          "title": "hmi_search_by_addressOutput",
+          "type": "object"
+        }
+      },
+      {
+        "name": "ftview_rung_xref",
+        "description": "Given a PLC tag address, return both HMI bindings and PLC ladder rungs.\n\n    Combines hmi_search_by_address with a rung content search to answer:\n    'Where is this tag displayed on the HMI, and what PLC logic controls it?'\n    Most useful when tracing a tag from operator screen through to controller.\n\n    Args:\n        plc_address: PLC address to cross-reference (e.g. 'PD10:14.PV', 'N7:124')\n        plc_id: Optional PLC scope (e.g. 'CH530001')\n    ",
+        "inputSchema": {
+          "properties": {
+            "plc_address": {
+              "title": "Plc Address",
+              "type": "string"
+            },
+            "plc_id": {
+              "default": "",
+              "title": "Plc Id",
+              "type": "string"
+            }
+          },
+          "required": [
+            "plc_address"
+          ],
+          "title": "ftview_rung_xrefArguments",
+          "type": "object"
+        },
+        "outputSchema": {
+          "properties": {
+            "result": {
+              "title": "Result",
+              "type": "string"
+            }
+          },
+          "required": [
+            "result"
+          ],
+          "title": "ftview_rung_xrefOutput",
+          "type": "object"
+        }
+      },
+      {
+        "name": "hmi_coverage_by_plc",
+        "description": "What percentage of a PLC's tags are displayed on at least one HMI?",
+        "inputSchema": {
+          "properties": {
+            "plc_id": {
+              "title": "Plc Id",
+              "type": "string"
+            }
+          },
+          "required": [
+            "plc_id"
+          ],
+          "title": "hmi_coverage_by_plcArguments",
+          "type": "object"
+        },
+        "outputSchema": {
+          "properties": {
+            "result": {
+              "title": "Result",
+              "type": "string"
+            }
+          },
+          "required": [
+            "result"
+          ],
+          "title": "hmi_coverage_by_plcOutput",
+          "type": "object"
+        }
+      },
+      {
+        "name": "hmi_project_summary",
+        "description": "Summary of one or all HMI projects with live binding counts.",
+        "inputSchema": {
+          "properties": {
+            "project_id": {
+              "default": 0,
+              "title": "Project Id",
+              "type": "integer"
+            }
+          },
+          "title": "hmi_project_summaryArguments",
+          "type": "object"
+        },
+        "outputSchema": {
+          "properties": {
+            "result": {
+              "title": "Result",
+              "type": "string"
+            }
+          },
+          "required": [
+            "result"
+          ],
+          "title": "hmi_project_summaryOutput",
+          "type": "object"
+        }
+      },
+      {
+        "name": "ingest_ftview_displays",
+        "description": "Ingest FT View ME display XML files into NEXUS HMI object catalog.\n    display_paths_json is a JSON array of absolute file paths to display XML files.",
+        "inputSchema": {
+          "properties": {
+            "display_paths_json": {
+              "title": "Display Paths Json",
+              "type": "string"
+            },
+            "project_name": {
+              "title": "Project Name",
+              "type": "string"
+            },
+            "plc_id": {
+              "default": "",
+              "title": "Plc Id",
+              "type": "string"
+            },
+            "commissioned": {
+              "default": "unknown",
+              "title": "Commissioned",
+              "type": "string"
+            }
+          },
+          "required": [
+            "display_paths_json",
+            "project_name"
+          ],
+          "title": "ingest_ftview_displaysArguments",
+          "type": "object"
+        },
+        "outputSchema": {
+          "properties": {
+            "result": {
+              "title": "Result",
+              "type": "string"
+            }
+          },
+          "required": [
+            "result"
+          ],
+          "title": "ingest_ftview_displaysOutput",
+          "type": "object"
+        }
+      },
+      {
+        "name": "ingest_ftview_project_folder",
+        "description": "Walk project_folder for FT View display XML files and ingest all found into NEXUS.",
+        "inputSchema": {
+          "properties": {
+            "project_folder": {
+              "title": "Project Folder",
+              "type": "string"
+            },
+            "project_name": {
+              "title": "Project Name",
+              "type": "string"
+            },
+            "plc_id": {
+              "default": "",
+              "title": "Plc Id",
+              "type": "string"
+            },
+            "commissioned": {
+              "default": "unknown",
+              "title": "Commissioned",
+              "type": "string"
+            }
+          },
+          "required": [
+            "project_folder",
+            "project_name"
+          ],
+          "title": "ingest_ftview_project_folderArguments",
+          "type": "object"
+        },
+        "outputSchema": {
+          "properties": {
+            "result": {
+              "title": "Result",
+              "type": "string"
+            }
+          },
+          "required": [
+            "result"
+          ],
+          "title": "ingest_ftview_project_folderOutput",
+          "type": "object"
+        }
+      },
+      {
+        "name": "ftview_find_objects",
+        "description": "Find FT View HMI objects by type, screen, or tag reference pattern.",
+        "inputSchema": {
+          "properties": {
+            "object_type": {
+              "default": "",
+              "title": "Object Type",
+              "type": "string"
+            },
+            "screen_name": {
+              "default": "",
+              "title": "Screen Name",
+              "type": "string"
+            },
+            "tag_pattern": {
+              "default": "",
+              "title": "Tag Pattern",
+              "type": "string"
+            },
+            "limit": {
+              "default": 20,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          "title": "ftview_find_objectsArguments",
+          "type": "object"
+        }
+      },
+      {
+        "name": "ftview_object_example",
+        "description": "Get one representative copy-pasteable XML example for a FT View object type.\n    Use this instead of reading full display XML files \u2014 ~36x token savings.",
+        "inputSchema": {
+          "properties": {
+            "object_type": {
+              "title": "Object Type",
+              "type": "string"
+            },
+            "screen_name": {
+              "default": "",
+              "title": "Screen Name",
+              "type": "string"
+            }
+          },
+          "required": [
+            "object_type"
+          ],
+          "title": "ftview_object_exampleArguments",
+          "type": "object"
+        },
+        "outputSchema": {
+          "properties": {
+            "result": {
+              "title": "Result",
+              "type": "string"
+            }
+          },
+          "required": [
+            "result"
+          ],
+          "title": "ftview_object_exampleOutput",
+          "type": "object"
+        }
+      },
+      {
+        "name": "ftview_screen_layout",
+        "description": "Get all objects on a FT View screen in tree form with nested group children.",
+        "inputSchema": {
+          "properties": {
+            "screen_name": {
+              "title": "Screen Name",
+              "type": "string"
+            }
+          },
+          "required": [
+            "screen_name"
+          ],
+          "title": "ftview_screen_layoutArguments",
+          "type": "object"
+        },
+        "outputSchema": {
+          "properties": {
+            "result": {
+              "title": "Result",
+              "type": "string"
+            }
+          },
+          "required": [
+            "result"
+          ],
+          "title": "ftview_screen_layoutOutput",
+          "type": "object"
+        }
+      },
+      {
+        "name": "ftview_tag_pattern",
+        "description": "Find all FT View HMI objects referencing tags matching a pattern (e.g. 'N7:124' or 'PD10:').",
+        "inputSchema": {
+          "properties": {
+            "tag_pattern": {
+              "title": "Tag Pattern",
+              "type": "string"
+            }
+          },
+          "required": [
+            "tag_pattern"
+          ],
+          "title": "ftview_tag_patternArguments",
+          "type": "object"
+        }
+      },
+      {
+        "name": "ftview_object_catalog",
+        "description": "Return the full FT View object type catalog with counts, common properties, and example XML.",
+        "inputSchema": {
+          "properties": {},
+          "title": "ftview_object_catalogArguments",
+          "type": "object"
+        }
+      },
+      {
+        "name": "ftview_navigation_graph",
+        "description": "Return the screen-to-screen navigation graph for an FTView HMI project.\n\n    Returns an adjacency dict (from_screen \u2192 [to_screen, ...]) and a full edge\n    list showing which button element triggers each navigation. Useful for\n    understanding HMI menu structure and verifying operator access paths.\n\n    Args:\n        project_name: HMI project name (e.g. 'CH530001 C11 Curing Oven')\n        project_id: Integer project ID (alternative to project_name)\n    ",
+        "inputSchema": {
+          "properties": {
+            "project_name": {
+              "default": "",
+              "title": "Project Name",
+              "type": "string"
+            },
+            "project_id": {
+              "default": 0,
+              "title": "Project Id",
+              "type": "integer"
+            }
+          },
+          "title": "ftview_navigation_graphArguments",
+          "type": "object"
+        },
+        "outputSchema": {
+          "properties": {
+            "result": {
+              "title": "Result",
+              "type": "string"
+            }
+          },
+          "required": [
+            "result"
+          ],
+          "title": "ftview_navigation_graphOutput",
+          "type": "object"
+        }
+      },
+      {
+        "name": "ftview_validate",
+        "description": "Validate a FactoryTalk View ME display XML file.\n\n    Checks all enabled rules and returns ALL violations at once \u2014 no more\n    one-error-at-a-time import loops. If fix=True, auto-fixes deterministic\n    errors and writes to {filename}_fixed.xml (never overwrites original).\n    If use_catalog=True, also compares against the NEXUS object catalog to\n    flag deviations from plant-standard patterns.\n\n    Args:\n        xml_path: Absolute path to the display XML file.\n        fix: If True, run auto-fix and return path to fixed file.\n        use_catalog: If True, run catalog comparison (requires NEXUS DB).\n\n    Returns:\n        {\n            \"valid\": bool,\n            \"error_count\": int,\n            \"warning_count\": int,\n            \"errors\": [{\"rule_id\", \"severity\", \"element_tag\", \"element_name\",\n                        \"line_number\", \"message\", \"fix_suggestion\", \"context\"}, ...],\n            \"warnings\": [...],\n            \"summary\": str,\n            \"fixed_path\": str or None   # set when fix=True\n        }\n    ",
+        "inputSchema": {
+          "properties": {
+            "xml_path": {
+              "title": "Xml Path",
+              "type": "string"
+            },
+            "fix": {
+              "default": false,
+              "title": "Fix",
+              "type": "boolean"
+            },
+            "use_catalog": {
+              "default": false,
+              "title": "Use Catalog",
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "xml_path"
+          ],
+          "title": "ftview_validateArguments",
+          "type": "object"
+        }
+      },
+      {
+        "name": "screen_inventory",
+        "description": "List all indexed HMI screens with binding counts.\n\n    Args:\n        plc_id: Optional PLC filter.\n\n    Returns list of dicts: plc_id, name, display_number, width, height,\n    binding_count, source_type.\n    ",
+        "inputSchema": {
+          "properties": {
+            "plc_id": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Plc Id"
+            }
+          },
+          "title": "screen_inventoryArguments",
+          "type": "object"
+        }
+      },
+      {
+        "name": "screen_tag_bindings",
+        "description": "Get all tag bindings for a named HMI screen.\n\n    Args:\n        display_name: Screen name (e.g. 'ExecWing').\n        plc_id: Optional PLC filter if multiple PLCs have same screen name.\n\n    Returns list of dicts: element_name, element_type, shortcut, raw_tag,\n    resolved_plc_id, binding_type, expression, connection_name.\n    ",
+        "inputSchema": {
+          "properties": {
+            "display_name": {
+              "title": "Display Name",
+              "type": "string"
+            },
+            "plc_id": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Plc Id"
+            }
+          },
+          "required": [
+            "display_name"
+          ],
+          "title": "screen_tag_bindingsArguments",
+          "type": "object"
+        }
+      },
+      {
+        "name": "ignition_tag_search",
+        "description": "Search indexed Ignition tags by name, path, or PLC tag reference.\n\n    Args:\n        query:  Search term (SQL LIKE \u2014 use % for wildcards).\n        device: Optional Ignition device name filter (e.g. 'C11Oven').\n        limit:  Maximum results (default 50).\n\n    Returns a dict with keys: query, result_count, results.\n    Each result: tag_path, name, tag_type, device_name, plc_tag,\n    resolved_plc_id, opc_item_path.\n    ",
+        "inputSchema": {
+          "properties": {
+            "query": {
+              "title": "Query",
+              "type": "string"
+            },
+            "device": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Device"
+            },
+            "limit": {
+              "default": 50,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          "required": [
+            "query"
+          ],
+          "title": "ignition_tag_searchArguments",
+          "type": "object"
+        }
+      },
+      {
+        "name": "ignition_device_map_tool",
+        "description": "List all Ignition OPC device-to-PLC mappings with tag counts.\n\n    Returns a dict with keys: device_count, resolved, unresolved, devices.\n    Each device: device_name, plc_id, tag_count.\n    ",
+        "inputSchema": {
+          "properties": {},
+          "title": "ignition_device_map_toolArguments",
+          "type": "object"
+        }
+      },
+      {
+        "name": "ignition_resolve_all",
+        "description": "Batch-resolve unresolved Ignition tags against the device map and known PLC IDs.\n\n    Four resolution strategies applied in order:\n    1. Seed new device map entries for known unresolved devices\n    2. Device map lookup \u2014 device_name matches ignition_device_map\n    3. CH-number pattern \u2014 device_name starts with 'CH' followed by 6 digits\n    4. Tag path mining \u2014 tag_path contains instrument tags with CH-number prefix\n       (e.g. 'CH51PI1901' in path \u2192 shop order 51 \u2192 forming PLCs)\n\n    Returns counts per strategy and list of still-unresolved devices.\n    ",
+        "inputSchema": {
+          "properties": {},
+          "title": "ignition_resolve_allArguments",
+          "type": "object"
+        }
+      },
+      {
+        "name": "ftview_writable_tags_audit",
+        "description": "List all HMI elements that can write to PLC tags (safety audit).\n\n    Returns every numericInputEnable, multistateButton, pushButton, and listSelector\n    element across all indexed displays, with the PLC address each element writes to.\n    Scope to one project (project_name) or one PLC (plc_id).\n\n    Args:\n        project_name: Filter to one HMI project\n        project_id: Integer project ID (alternative to project_name)\n        plc_id: Filter to one PLC's writable tags (e.g. 'CH530001')\n    ",
+        "inputSchema": {
+          "properties": {
+            "project_name": {
+              "default": null,
+              "title": "Project Name",
+              "type": "string"
+            },
+            "project_id": {
+              "default": null,
+              "title": "Project Id",
+              "type": "integer"
+            },
+            "plc_id": {
+              "default": null,
+              "title": "Plc Id",
+              "type": "string"
+            }
+          },
+          "title": "ftview_writable_tags_auditArguments",
+          "type": "object"
+        },
+        "outputSchema": {
+          "properties": {
+            "result": {
+              "title": "Result",
+              "type": "string"
+            }
+          },
+          "required": [
+            "result"
+          ],
+          "title": "ftview_writable_tags_auditOutput",
+          "type": "object"
+        }
+      },
+      {
+        "name": "ftview_state_labels",
+        "description": "Return operator-visible state labels for multistate HMI indicators/buttons.\n\n    Given a PLC address (e.g. 'N7:124' or 'Drive1.Status'), returns the caption text\n    and color for each integer value displayed on every multistate indicator watching\n    that address. Answers: 'what does the operator see when this tag equals 2?'\n\n    Args:\n        plc_address: PLC tag address to look up (e.g. 'PD10:14.Status')\n        project_id: Scope to one HMI project (0 = all projects)\n        object_name: Look up states for a specific named indicator/button\n    ",
+        "inputSchema": {
+          "properties": {
+            "plc_address": {
+              "default": "",
+              "title": "Plc Address",
+              "type": "string"
+            },
+            "project_id": {
+              "default": 0,
+              "title": "Project Id",
+              "type": "integer"
+            },
+            "object_name": {
+              "default": "",
+              "title": "Object Name",
+              "type": "string"
+            }
+          },
+          "title": "ftview_state_labelsArguments",
+          "type": "object"
+        },
+        "outputSchema": {
+          "properties": {
+            "result": {
+              "title": "Result",
+              "type": "string"
+            }
+          },
+          "required": [
+            "result"
+          ],
+          "title": "ftview_state_labelsOutput",
+          "type": "object"
+        }
+      },
+      {
+        "name": "nexus_reindex",
+        "description": "Trigger a re-index of PLC source files into the NEXUS database.\n\n    Args:\n        plc_id:      Limit re-index to a single PLC (None = all PLCs).\n        incremental: Skip files whose hash has not changed since last index.\n\n    Returns the report dict produced by IngestPipeline.run().\n    ",
+        "inputSchema": {
+          "properties": {
+            "plc_id": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Plc Id"
+            },
+            "incremental": {
+              "default": true,
+              "title": "Incremental",
+              "type": "boolean"
+            }
+          },
+          "title": "nexus_reindexArguments",
+          "type": "object"
+        }
+      },
+      {
+        "name": "ingest_l5x",
+        "description": "Ingest a single ControlLogix L5X export file into NEXUS.\n\n    Args:\n        l5x_path: Absolute path to the .L5X file\n        plc_id: PLC identifier (e.g. 'CH300001')\n    ",
+        "inputSchema": {
+          "properties": {
+            "l5x_path": {
+              "title": "L5X Path",
+              "type": "string"
+            },
+            "plc_id": {
+              "title": "Plc Id",
+              "type": "string"
+            }
+          },
+          "required": [
+            "l5x_path",
+            "plc_id"
+          ],
+          "title": "ingest_l5xArguments",
+          "type": "object"
+        },
+        "outputSchema": {
+          "properties": {
+            "result": {
+              "title": "Result",
+              "type": "string"
+            }
+          },
+          "required": [
+            "result"
+          ],
+          "title": "ingest_l5xOutput",
+          "type": "object"
+        }
+      },
+      {
+        "name": "coverage_gap",
+        "description": "Measure ladder-logic address coverage against the tags table for a PLC.",
+        "inputSchema": {
+          "properties": {
+            "plc_id": {
+              "title": "Plc Id",
+              "type": "string"
+            },
+            "program_filter": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Program Filter"
+            }
+          },
+          "required": [
+            "plc_id"
+          ],
+          "title": "coverage_gapArguments",
+          "type": "object"
+        }
+      },
+      {
+        "name": "promote_raw_addresses_to_tags",
+        "description": "Promote rung-referenced PLC-5 addresses with no tag entry into synthetic tag rows.\n\n    Closes the ingestion gap between address_xref (populated from rung parsing) and the\n    tags table (populated only from the SY6 symbol exporter). Each promoted address gets\n    a synthetic tag row with source='raw_address_promotion' and a coverage_notes string\n    recording the promotion date.\n\n    Idempotent: safe to call multiple times \u2014 running twice produces zero new rows on the\n    second call. Does not modify any existing tag row.\n\n    Does NOT auto-run during indexing \u2014 call explicitly after indexing a PLC.\n\n    Args:\n        plc_id: PLC to promote (e.g. 'CH850001').\n\n    Returns dict with: plc_id, total_xref_canonicals, already_in_tags, promoted, errors.\n    ",
+        "inputSchema": {
+          "properties": {
+            "plc_id": {
+              "title": "Plc Id",
+              "type": "string"
+            }
+          },
+          "required": [
+            "plc_id"
+          ],
+          "title": "promote_raw_addresses_to_tagsArguments",
+          "type": "object"
+        }
+      },
+      {
+        "name": "generate_io_inventory",
+        "description": "Generate a flat physical I/O inventory for a PLC with trust levels and HMI cross-references.\n\n    Unions tags-table I/O addresses with address_xref I/O canonicals. Classifies each point\n    by physical class (DI/AI/DO/AO) and trust level (Verified / Logic-confirmed / Import-only).\n    Returns a Markdown document with four sorted tables plus a priority verification list.\n\n    Args:\n        plc_id: PLC identifier (e.g., 'CH550003')\n        output_path: Optional file path to write the Markdown output. Always returns the string.\n\n    Returns JSON with keys: markdown, output_path, summary {total/di/ai/do/ao/verified/\u2026}, io_points.\n    ",
+        "inputSchema": {
+          "properties": {
+            "plc_id": {
+              "title": "Plc Id",
+              "type": "string"
+            },
+            "output_path": {
+              "default": "",
+              "title": "Output Path",
+              "type": "string"
+            }
+          },
+          "required": [
+            "plc_id"
+          ],
+          "title": "generate_io_inventoryArguments",
+          "type": "object"
+        },
+        "outputSchema": {
+          "properties": {
+            "result": {
+              "title": "Result",
+              "type": "string"
+            }
+          },
+          "required": [
+            "result"
+          ],
+          "title": "generate_io_inventoryOutput",
+          "type": "object"
+        }
+      },
+      {
+        "name": "group_io_by_area",
+        "description": "Cluster a PLC's I/O points into functional areas by rack/group prefix and rung co-occurrence.\n\n    Groups addresses by their I:/O: file-number prefix, pairs adjacent I and O groups into\n    functional areas, then names each area from the majority description keyword theme.\n\n    Args:\n        plc_id: PLC identifier\n\n    Returns JSON with key 'areas': list of {area_name, rationale, prefixes, addresses, dependencies}.\n    ",
+        "inputSchema": {
+          "properties": {
+            "plc_id": {
+              "title": "Plc Id",
+              "type": "string"
+            }
+          },
+          "required": [
+            "plc_id"
+          ],
+          "title": "group_io_by_areaArguments",
+          "type": "object"
+        },
+        "outputSchema": {
+          "properties": {
+            "result": {
+              "title": "Result",
+              "type": "string"
+            }
+          },
+          "required": [
+            "result"
+          ],
+          "title": "group_io_by_areaOutput",
+          "type": "object"
+        }
+      },
+      {
+        "name": "find_area_interlocks",
+        "description": "Find rungs where addresses from two different I/O areas co-appear.\n\n    Useful for identifying interlock dependencies between functional areas before field verification.\n\n    Args:\n        plc_id: PLC identifier\n        area_a_addresses: JSON array of canonical addresses for area A (e.g., '[\"I:014/00\",\"I:014/01\"]')\n        area_b_addresses: JSON array of canonical addresses for area B\n\n    Returns JSON with shared_rung_count and list of shared_rungs with addresses per area per rung.\n    ",
+        "inputSchema": {
+          "properties": {
+            "plc_id": {
+              "title": "Plc Id",
+              "type": "string"
+            },
+            "area_a_addresses": {
+              "title": "Area A Addresses",
+              "type": "string"
+            },
+            "area_b_addresses": {
+              "title": "Area B Addresses",
+              "type": "string"
+            }
+          },
+          "required": [
+            "plc_id",
+            "area_a_addresses",
+            "area_b_addresses"
+          ],
+          "title": "find_area_interlocksArguments",
+          "type": "object"
+        },
+        "outputSchema": {
+          "properties": {
+            "result": {
+              "title": "Result",
+              "type": "string"
+            }
+          },
+          "required": [
+            "result"
+          ],
+          "title": "find_area_interlocksOutput",
+          "type": "object"
+        }
+      },
+      {
+        "name": "generate_io_package",
+        "description": "Generate a complete I/O documentation package for a PLC (inventory + verification plan).\n\n    Runs the seven-stage pipeline:\n      1. Flat physical I/O inventory with trust levels\n      2. Area grouping by rack/group prefix\n      3. Cross-area interlock detection\n      4. Desk review (bulk rung-context analysis, max 50 inferences)\n      5. Risk-sort areas (highest unresolved count first)\n      6. Render two Markdown documents\n      7. Write files to output_dir (defaults to ~/.nexus/reports/{plc_id}/)\n\n    Read-only against the NEXUS database.\n\n    Args:\n        plc_id: PLC identifier (e.g., 'CH510002', 'CH550003')\n        output_dir: Optional directory to write the two output files. Defaults to ~/.nexus/reports/{plc_id}/\n\n    Returns JSON summary with paths, total_io_points, desk_review_summary, areas, execution_time_seconds.\n    ",
+        "inputSchema": {
+          "properties": {
+            "plc_id": {
+              "title": "Plc Id",
+              "type": "string"
+            },
+            "output_dir": {
+              "default": "",
+              "title": "Output Dir",
+              "type": "string"
+            }
+          },
+          "required": [
+            "plc_id"
+          ],
+          "title": "generate_io_packageArguments",
+          "type": "object"
+        },
+        "outputSchema": {
+          "properties": {
+            "result": {
+              "title": "Result",
+              "type": "string"
+            }
+          },
+          "required": [
+            "result"
+          ],
+          "title": "generate_io_packageOutput",
+          "type": "object"
+        }
+      },
+      {
+        "name": "onboard_plc",
+        "description": "Run the full PLC analysis pipeline in a single call.\n\n    Stages:\n      [1] reindex              \u2014 scan source files (skip_reindex=True by default for MCP)\n      [2] promote raw addresses \u2014 Path A: 100% tag coverage\n      [3] classify signal roles \u2014 13-role taxonomy\n      [4] coverage gap          \u2014 verify coverage %\n      [5] I/O package           \u2014 inventory + verification plan + desk review\n      [6] sister-diff           \u2014 compare against sister PLCs (only when sisters given)\n\n    Stages 1\u20135 are fatal: an exception in any stage stops the remaining stages and\n    returns the partial results dict. Stage 4 coverage < 100% is a warning, not a stop.\n    Stage 6 is non-fatal: failure is captured in results but does not suppress Stage 5 output.\n\n    Args:\n        plc_id:           PLC to analyze (e.g. 'CH550003').\n        sisters:          Comma-separated sister PLCs for Stage 6\n                          (e.g. 'CH550001,CH550002,CH550004').\n        skip_reindex:     Skip Stage 1 \u2014 default True (PLC is already indexed in MCP context).\n        skip_path_a:      Skip Stage 2 (Path A promotion already run).\n        skip_sister_diff: Skip Stage 6 even when sisters are provided.\n        output_dir:       Output directory for generated files.\n                          Default: ~/.nexus/reports/{plc_id}/\n        auto_promote:     Pass --auto-promote to sister_diff_report (Stage 6).\n\n    Returns JSON string with one key per executed stage plus '_total_elapsed'.\n    Each stage value is a dict with 'success', 'elapsed', and stage-specific fields.\n    ",
+        "inputSchema": {
+          "properties": {
+            "plc_id": {
+              "title": "Plc Id",
+              "type": "string"
+            },
+            "sisters": {
+              "default": "",
+              "title": "Sisters",
+              "type": "string"
+            },
+            "skip_reindex": {
+              "default": true,
+              "title": "Skip Reindex",
+              "type": "boolean"
+            },
+            "skip_path_a": {
+              "default": false,
+              "title": "Skip Path A",
+              "type": "boolean"
+            },
+            "skip_sister_diff": {
+              "default": false,
+              "title": "Skip Sister Diff",
+              "type": "boolean"
+            },
+            "output_dir": {
+              "default": "",
+              "title": "Output Dir",
+              "type": "string"
+            },
+            "auto_promote": {
+              "default": false,
+              "title": "Auto Promote",
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "plc_id"
+          ],
+          "title": "onboard_plcArguments",
+          "type": "object"
+        },
+        "outputSchema": {
+          "properties": {
+            "result": {
+              "title": "Result",
+              "type": "string"
+            }
+          },
+          "required": [
+            "result"
+          ],
+          "title": "onboard_plcOutput",
+          "type": "object"
+        }
+      },
+      {
+        "name": "ingest_quickdesigner_descriptions",
+        "description": "Ingest HMI label descriptions from a QuickDesigner parser JSON output file.\n\n    Reads a JSON file produced by quickdesigner_parse.py -f json, matches\n    each binding's canonical PLC address to the tags table for plc_id, and\n    inserts description_sources rows with source_type='hmi_quickdesigner'\n    (base_confidence=0.8) for bindings that have an operator-visible label.\n\n    Bindings without label_off text (bit_lamps, numeric displays) are not\n    stored \u2014 presence without a label doesn't constitute a description.\n\n    Idempotent \u2014 bindings already ingested from the same source_file are\n    skipped.  Does NOT modify the tags table.\n\n    Args:\n        plc_id:              Target PLC (e.g. 'CH550003').\n        parser_output_path:  Path to the JSON file from quickdesigner_parse.py.\n\n    Returns dict with: plc_id, source_file, bindings_examined, bindings_matched,\n    bindings_with_labels, rows_inserted, rows_skipped_existing, bindings_unmatched.\n    ",
+        "inputSchema": {
+          "properties": {
+            "plc_id": {
+              "title": "Plc Id",
+              "type": "string"
+            },
+            "parser_output_path": {
+              "title": "Parser Output Path",
+              "type": "string"
+            }
+          },
+          "required": [
+            "plc_id",
+            "parser_output_path"
+          ],
+          "title": "ingest_quickdesigner_descriptionsArguments",
+          "type": "object"
+        }
+      },
+      {
+        "name": "ingest_vision_descriptions",
+        "description": "Ingest HMI label descriptions from an Ignition Vision binding extractor output.\n\n    Placeholder: the Vision extractor currently produces Markdown output and\n    the primary test PLC (CH340001) is not indexed in NEXUS.  This tool\n    validates schema compatibility and returns the expected summary structure\n    but inserts 0 rows for current inputs.\n\n    Will be upgraded to full ingestion when JSON output format and PLC indexing\n    are available.\n\n    Args:\n        plc_id:              Target PLC (e.g. 'CH340001').\n        parser_output_path:  Path to the Vision extractor output file.\n\n    Returns dict with: plc_id, source_file, bindings_examined, bindings_matched,\n    bindings_with_labels, rows_inserted, rows_skipped_existing, bindings_unmatched, note.\n    ",
+        "inputSchema": {
+          "properties": {
+            "plc_id": {
+              "title": "Plc Id",
+              "type": "string"
+            },
+            "parser_output_path": {
+              "title": "Parser Output Path",
+              "type": "string"
+            }
+          },
+          "required": [
+            "plc_id",
+            "parser_output_path"
+          ],
+          "title": "ingest_vision_descriptionsArguments",
+          "type": "object"
+        }
+      },
+      {
+        "name": "extract_rung_comments",
+        "description": "Extract rung comments attributed to their write-type output targets (dry run).\n\n    Reads rung comments from indexed PLC data and attributes each comment to\n    the address(es) written by that rung.  Does NOT write to description_sources \u2014\n    returns the candidate list for inspection before committing to ingestion.\n\n    Join path: rungs \u2192 routines \u2192 address_xref on (plc_id, routine, rung_number).\n    Only write-type outputs are attributed.  Disabled rungs are excluded.\n\n    Filters applied:\n    - Trimmed comment length >= 15 characters\n    - Comment must not contain maintenance markers (TODO:, XXX:, FIXME:, TBD:,\n      N/A, 'left blank', 'not used', 'spare', 'unused')\n\n    Args:\n        plc_id: Optional PLC filter (e.g. 'CH550003').  None returns all PLCs.\n\n    Returns dict with: plc_id_filter, rungs_with_comments, rungs_after_filter,\n    attributions_produced, skipped_too_short, skipped_maintenance,\n    extractions (list of {plc_id, tag_name, description, source_location,\n    instruction}).\n    ",
+        "inputSchema": {
+          "properties": {
+            "plc_id": {
+              "default": null,
+              "title": "Plc Id",
+              "type": "string"
+            }
+          },
+          "title": "extract_rung_commentsArguments",
+          "type": "object"
+        }
+      },
+      {
+        "name": "ingest_rung_comments",
+        "description": "Ingest rung comments into description_sources as source_type='rung_comment'.\n\n    Extracts rung comments via extract_rung_comments, then inserts each\n    attribution as a description_sources row with base_confidence=0.3.\n\n    Idempotency: keyed on (plc_id, tag_name, source_type, source_location).\n    A tag referenced as output in multiple commented rungs accumulates multiple\n    rung_comment rows \u2014 one per rung \u2014 each with its own source_location.\n    Re-running the same PLC inserts 0 new rows.\n\n    Does NOT modify the tags table or any existing description_sources rows.\n\n    Args:\n        plc_id: Optional PLC filter (e.g. 'CH550003').  None processes all PLCs.\n\n    Returns dict with: plc_id_filter, rungs_with_comments, rungs_after_filter,\n    attributions_produced, rows_inserted, rows_skipped_existing.\n    ",
+        "inputSchema": {
+          "properties": {
+            "plc_id": {
+              "default": null,
+              "title": "Plc Id",
+              "type": "string"
+            }
+          },
+          "title": "ingest_rung_commentsArguments",
+          "type": "object"
+        }
+      },
+      {
+        "name": "plc_impact_analysis",
+        "description": "Return the full communication footprint of a PLC.\n\n    Returns a dict with keys:\n        plc_id, msg_sources, msg_targets,\n        produces_to, consumes_from, unresolved_links\n    ",
+        "inputSchema": {
+          "properties": {
+            "plc_id": {
+              "title": "Plc Id",
+              "type": "string"
+            }
+          },
+          "required": [
+            "plc_id"
+          ],
+          "title": "plc_impact_analysisArguments",
+          "type": "object"
+        }
+      },
+      {
+        "name": "aoi_instances_find",
+        "description": "Find all instances of a named AOI across the plant (or within one PLC).\n\n    Returns a list of dicts with keys:\n        plc_id, program, routine, rung_number, instance_tag\n    ",
+        "inputSchema": {
+          "properties": {
+            "aoi_name": {
+              "title": "Aoi Name",
+              "type": "string"
+            },
+            "plc_id": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Plc Id"
+            }
+          },
+          "required": [
+            "aoi_name"
+          ],
+          "title": "aoi_instances_findArguments",
+          "type": "object"
+        },
+        "outputSchema": {
+          "properties": {
+            "result": {
+              "anyOf": [
+                {
+                  "items": {
+                    "additionalProperties": true,
+                    "type": "object"
+                  },
+                  "type": "array"
+                },
+                {
+                  "additionalProperties": true,
+                  "type": "object"
+                }
+              ],
+              "title": "Result"
+            }
+          },
+          "required": [
+            "result"
+          ],
+          "title": "aoi_instances_findOutput",
+          "type": "object"
+        }
+      },
+      {
+        "name": "aoi_library_search",
+        "description": "Search AOI definitions in the Engineering Library.\n\n    Args:\n        name_pattern: AOI name pattern (use * as wildcard, e.g. P_Motor or P_*)\n        library_name: Optional filter by library name (e.g. PlantPAx)\n        version: Optional filter by library version (e.g. v4.10.06)\n        plant_standard_only: If True, return only plant standard version AOIs\n\n    Returns:\n        dict with keys: query, result_count, truncated, results\n    ",
+        "inputSchema": {
+          "properties": {
+            "name_pattern": {
+              "title": "Name Pattern",
+              "type": "string"
+            },
+            "library_name": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Library Name"
+            },
+            "version": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Version"
+            },
+            "plant_standard_only": {
+              "default": false,
+              "title": "Plant Standard Only",
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "name_pattern"
+          ],
+          "title": "aoi_library_searchArguments",
+          "type": "object"
+        }
+      },
+      {
+        "name": "aoi_version_check",
+        "description": "Check AOI versions in plant PLCs against the plant standard library.\n\n    For each AOI instance in live plant programs, compares the embedded AOI\n    revision against the plant standard library version.\n\n    Args:\n        plc_id: Optional PLC CH number (e.g. CH530001). None checks all plant PLCs.\n\n    Returns:\n        dict with checked/current/outdated/not_in_library counts and instances list.\n    ",
+        "inputSchema": {
+          "properties": {
+            "plc_id": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Plc Id"
+            }
+          },
+          "title": "aoi_version_checkArguments",
+          "type": "object"
+        }
+      },
+      {
+        "name": "plant_summary",
+        "description": "Return high-level statistics for the entire NEXUS knowledge graph.",
+        "inputSchema": {
+          "properties": {},
+          "title": "plant_summaryArguments",
+          "type": "object"
+        }
+      },
+      {
+        "name": "address_xref",
+        "description": "Full cross-reference for any PLC address.",
+        "inputSchema": {
+          "properties": {
+            "plc_id": {
+              "title": "Plc Id",
+              "type": "string"
+            },
+            "address": {
+              "title": "Address",
+              "type": "string"
+            }
+          },
+          "required": [
+            "plc_id",
+            "address"
+          ],
+          "title": "address_xrefArguments",
+          "type": "object"
+        }
+      },
+      {
+        "name": "address_xref_summary",
+        "description": "Lightweight address cross-reference \u2014 counts and related address lists only.\n    Use this for quick checks; use address_xref for full rung-level detail.\n\n    Args:\n        plc_id: PLC identifier\n        address: Any address format\n\n    Returns dict with counts and related address lists.\n    ",
+        "inputSchema": {
+          "properties": {
+            "plc_id": {
+              "title": "Plc Id",
+              "type": "string"
+            },
+            "address": {
+              "title": "Address",
+              "type": "string"
+            }
+          },
+          "required": [
+            "plc_id",
+            "address"
+          ],
+          "title": "address_xref_summaryArguments",
+          "type": "object"
+        }
+      },
+      {
+        "name": "address_trace_chain",
+        "description": "Trace the signal chain through PLC logic for any address.\n\n    Follow an address backward to find its source(s) and/or forward to find\n    its destination(s). Recursively traces through MOV, ADD, SUB, etc.\n\n    Args:\n        plc_id: PLC identifier (e.g., 'CH880001')\n        address: Starting address in any format\n        direction: 'backward' (find sources), 'forward' (find destinations), or 'both'\n        max_depth: Maximum recursion depth (default 5)\n\n    Returns dict with:\n        'address': canonical starting address\n        'backward_chain': list of {depth, address, written_in_rung, instruction, source_address}\n        'forward_chain': list of {depth, address, read_in_rung, instruction, feeds_into}\n        'complete_path': human-readable summary string\n    ",
+        "inputSchema": {
+          "properties": {
+            "plc_id": {
+              "title": "Plc Id",
+              "type": "string"
+            },
+            "address": {
+              "title": "Address",
+              "type": "string"
+            },
+            "direction": {
+              "default": "both",
+              "title": "Direction",
+              "type": "string"
+            },
+            "max_depth": {
+              "default": 5,
+              "title": "Max Depth",
+              "type": "integer"
+            }
+          },
+          "required": [
+            "plc_id",
+            "address"
+          ],
+          "title": "address_trace_chainArguments",
+          "type": "object"
+        }
+      },
+      {
+        "name": "get_state_machine",
+        "description": "Return detected ladder state machines for a PLC, optionally filtered to one routine.\n\n    Output per machine: register, idiom, ordered states with labels, transition\n    table (from\u2192to, gate_tag, condition_type, enabled), and per-step action table.\n    Counter/sequencer (PLC-5) machines report states+actions only \u2014 transitions are\n    not MOV-driven and are omitted by design (reported as a gap), not inferred.\n\n    Run `nexus patterns detect --plc <id>` first to populate the detection tables.\n\n    Args:\n        plc_id:       PLC identifier (e.g. 'Dryer_PLC', 'CH850001').\n        routine_name: Optional routine name to return only machines in that routine.\n\n    Returns a dict with:\n        plc_id, machines (list of machine dicts), machine_count.\n        Each machine dict: routine_name, register, idiom, state_count,\n          transition_count, states (list), transitions (list), actions (list), notes.\n        Returns a note dict if no machines are detected.\n    ",
+        "inputSchema": {
+          "properties": {
+            "plc_id": {
+              "title": "Plc Id",
+              "type": "string"
+            },
+            "routine_name": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Routine Name"
+            }
+          },
+          "required": [
+            "plc_id"
+          ],
+          "title": "get_state_machineArguments",
+          "type": "object"
+        }
+      },
+      {
+        "name": "find_first_out_faults",
+        "description": "Return detected first-out fault-latch groups for a PLC.\n\n    First-out latches record the FIRST fault in a cascade and block subsequent\n    captures until reset.  Each group identifies the captured FO register (the\n    tag that holds the first-fault code), the active-flag tag (XIO/OTL self-latch\n    that blocks re-capture), the reset path (XIC command that OTUs the flag),\n    and the ordered member fault sources (MOV sources writing into the FO register,\n    with optional sequence hints).\n\n    Run ``nexus patterns detect --plc <id>`` first to populate the detection tables.\n\n    Args:\n        plc_id: PLC identifier (e.g. 'Dryer_PLC').\n\n    Returns a dict with:\n        plc_id, groups (list), group_count.\n        Each group dict: routine_name, fo_register, active_flag_tag, reset_tag,\n          latch_rung, member_count, members (list of {fault_tag, sequence_hint, rung_number}).\n        Returns a note explaining the signature when no groups are detected.\n    ",
+        "inputSchema": {
+          "properties": {
+            "plc_id": {
+              "title": "Plc Id",
+              "type": "string"
+            }
+          },
+          "required": [
+            "plc_id"
+          ],
+          "title": "find_first_out_faultsArguments",
+          "type": "object"
+        }
+      },
+      {
+        "name": "list_documented_plcs",
+        "description": "List all PLCs that have been documented via the full pipeline.",
+        "inputSchema": {
+          "properties": {},
+          "title": "list_documented_plcsArguments",
+          "type": "object"
+        }
+      },
+      {
+        "name": "find_interlocks",
+        "description": "Trace all interlocks and permissives required for an output to energize.",
+        "inputSchema": {
+          "properties": {
+            "plc_id": {
+              "title": "Plc Id",
+              "type": "string"
+            },
+            "output_address": {
+              "title": "Output Address",
+              "type": "string"
+            },
+            "max_depth": {
+              "default": 3,
+              "title": "Max Depth",
+              "type": "integer"
+            }
+          },
+          "required": [
+            "plc_id",
+            "output_address"
+          ],
+          "title": "find_interlocksArguments",
+          "type": "object"
+        }
+      },
+      {
+        "name": "classify_signal_roles",
+        "description": "Classify PLC-5 addresses by structural role based on ladder instruction patterns.\n\n    Examines the address_xref table instruction evidence for each canonical\n    address and assigns one or more roles from a fixed taxonomy:\n\n    latch, one_shot, output_coil, timer, counter, integer_register,\n    control_register, input, output, pid_register, message, status_word,\n    unclassified.\n\n    Role assignment is pattern-based (observable instructions), not semantic\n    inference.  PLC-5 only \u2014 ControlLogix tags are not classified.\n\n    When tag_name is omitted the full PLC is classified and a role-distribution\n    summary (the \"PLC fingerprint\") is returned first.\n\n    Args:\n        plc_id:   PLC identifier (e.g. 'CH550001').\n        tag_name: Optional canonical address to classify a single tag\n                  (e.g. 'B3:5/0').  When omitted, all addresses are classified.\n\n    Returns a dict with:\n        - Single-tag: plc_id, canonical, file_type, roles, primary_role,\n          evidence, read_count, write_count.\n        - Full-PLC: plc_id, summary (role_distribution, total_classified,\n          multi_role_count, unclassified_count), classifications (list).\n    ",
+        "inputSchema": {
+          "properties": {
+            "plc_id": {
+              "title": "Plc Id",
+              "type": "string"
+            },
+            "tag_name": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Tag Name"
+            }
+          },
+          "required": [
+            "plc_id"
+          ],
+          "title": "classify_signal_rolesArguments",
+          "type": "object"
+        }
+      },
+      {
+        "name": "ote_conflict_audit",
+        "description": "Scan every output coil (OTE/OTL/OTU) write site in the PLC and flag\n    addresses with more than one writer.\n\n    Also detects word-level writes (MOV/COP/CPS/FLL/CLR) that target a DINT\n    at the word level \u2014 these silently overwrite all bit assignments in one scan\n    and are the most dangerous form of the OTE conflict pattern.\n\n    Severity levels returned:\n        HIGH            Multiple OTE in the same task (last-wins guaranteed).\n        HIGH-CROSS-TASK Multiple OTE across different tasks (verify priority).\n        MEDIUM          Mix of OTE + OTL/OTU (may be intentional safety latch).\n        LOW             Multiple OTL or OTU only (usually safe).\n        WORD_LEVEL      MOV/COP/etc to a DINT word (engineer must triage).\n\n    Args:\n        plc_id: PLC identifier (e.g. 'NFK-DRYER-01').\n\n    Returns a dict with scan_stats, conflicts (with write_sites and verdict),\n    word_level_overwrites, and clean_outputs count.\n    ",
+        "inputSchema": {
+          "properties": {
+            "plc_id": {
+              "title": "Plc Id",
+              "type": "string"
+            }
+          },
+          "required": [
+            "plc_id"
+          ],
+          "title": "ote_conflict_auditArguments",
+          "type": "object"
+        }
+      },
+      {
+        "name": "dint_bit_audit",
+        "description": "Audit DINT arbitration tags for bit-level write uniqueness.\n\n    Detects the following conditions on each bit of every DINT tag matching\n    tag_pattern:\n        DUAL_OTE        Two OTE writers on the same bit \u2014 Anomaly B class bug.\n                        Scan-order conflict within the arbitration layer.\n        LATCH_PATTERN   OTL + OTU on same bit \u2014 verify intentional with comment.\n        MIXED           OTE co-exists with OTL/OTU \u2014 suspicious, review needed.\n        UNCLOSED_LATCH  OTL with no OTU \u2014 bit can never self-clear.\n        UNCLOSED_UNLATCH OTU with no OTL \u2014 likely dead code.\n\n    Also detects:\n        ORPHANED_DINT   Tag exists in tag table but has zero write sites.\n        WORD_LEVEL      MOV/COP/etc writing the whole DINT word.\n\n    Runs a pre-flight check to warn if address_level='bit' is not populated\n    for any OTE rows (which would cause silent misses in the audit).\n\n    Args:\n        plc_id:      PLC identifier (e.g. 'NFK-DRYER-01').\n        tag_pattern: SQL LIKE pattern for DINT tag names (default 'Seq_%_Start'\n                     covers all arbitration tags on NFK-DRYER-01).\n\n    Returns a dict with warnings, summary, conflicts, orphaned_dint_tags,\n    latch_bits_needing_review, and word_level_overwrites.\n    ",
+        "inputSchema": {
+          "properties": {
+            "plc_id": {
+              "title": "Plc Id",
+              "type": "string"
+            },
+            "tag_pattern": {
+              "default": "Seq_%_Start",
+              "title": "Tag Pattern",
+              "type": "string"
+            }
+          },
+          "required": [
+            "plc_id"
+          ],
+          "title": "dint_bit_auditArguments",
+          "type": "object"
+        }
+      },
+      {
+        "name": "nexus_status",
+        "description": "NEXUS server health: schema version, PLC count, tag count.",
+        "inputSchema": {
+          "properties": {},
+          "title": "nexus_statusArguments",
+          "type": "object"
+        }
+      },
+      {
+        "name": "generate_sequence_of_operations",
+        "description": "\n    Generate a Sequence of Operations document for a PLC.\n\n    Produces plain-English descriptions of how the PLC program\n    operates, including: what conditions enable each output,\n    timing sequences, PID loop configurations, and interlock chains.\n\n    Args:\n        plc_id: PLC identifier (e.g., 'CH880001')\n        scope: 'full' (all logic), 'outputs_only' (just output chains),\n               'pid' (PID loops only)\n        output_format: 'markdown' or 'text'\n\n    Returns dict with:\n        'document': the formatted SOO text/markdown\n        'summary': section count, output count, PID count, timer count\n        'confidence_note': description confidence breakdown\n    ",
+        "inputSchema": {
+          "properties": {
+            "plc_id": {
+              "title": "Plc Id",
+              "type": "string"
+            },
+            "scope": {
+              "default": "full",
+              "title": "Scope",
+              "type": "string"
+            },
+            "output_format": {
+              "default": "markdown",
+              "title": "Output Format",
+              "type": "string"
+            }
+          },
+          "required": [
+            "plc_id"
+          ],
+          "title": "generate_sequence_of_operationsArguments",
+          "type": "object"
+        }
+      },
+      {
+        "name": "generate_network_topology",
+        "description": "\n    Generate a Graphviz DOT diagram of the complete plant network\n    topology showing all PLC-to-PLC communication paths, HMI\n    connections, and Ignition SCADA links.\n\n    The DOT output can be rendered with Graphviz, pasted into\n    an online viewer (https://dreampuf.github.io/GraphvizOnline/),\n    or saved as a .dot file.\n\n    Args:\n        include_hmi: include FTView HMI connections (default True)\n        include_ignition: include Ignition OPC-UA device connections (default True)\n        highlight_plc: optional PLC ID to highlight in the diagram\n\n    Returns:\n        'dot': the complete DOT string\n        'stats': dict with plc_count, msg_links, produced_consumed,\n                 hmi_connections, ignition_devices\n        'render_hint': instructions for rendering the diagram\n    ",
+        "inputSchema": {
+          "properties": {
+            "include_hmi": {
+              "default": true,
+              "title": "Include Hmi",
+              "type": "boolean"
+            },
+            "include_ignition": {
+              "default": true,
+              "title": "Include Ignition",
+              "type": "boolean"
+            },
+            "highlight_plc": {
+              "default": null,
+              "title": "Highlight Plc",
+              "type": "string"
+            }
+          },
+          "title": "generate_network_topologyArguments",
+          "type": "object"
+        }
+      },
+      {
+        "name": "generate_plc_impact_diagram",
+        "description": "\n    Generate a Graphviz DOT diagram showing one PLC and everything\n    connected to it \u2014 the visual version of plc_impact_analysis.\n\n    Shows: upstream/downstream MSG links, produced/consumed tags,\n    HMI screens, Ignition devices, all centered on the target PLC.\n\n    Args:\n        plc_id: PLC identifier (e.g., 'CH530001')\n\n    Returns:\n        'dot': the DOT string\n        'stats': dict with upstream, downstream, hmi_screens, ignition_devices\n        'render_hint': instructions for rendering\n    ",
+        "inputSchema": {
+          "properties": {
+            "plc_id": {
+              "title": "Plc Id",
+              "type": "string"
+            }
+          },
+          "required": [
+            "plc_id"
+          ],
+          "title": "generate_plc_impact_diagramArguments",
+          "type": "object"
+        }
+      },
+      {
+        "name": "generate_logic_flow",
+        "description": "\n    Generate a Graphviz DOT diagram showing signal/logic flow within a PLC.\n\n    Four effective modes:\n    - address + mode='data':  trace MOV/COP/ADD data flow (original behavior)\n    - address + mode='logic': trace XIC/XIO backward logic flow (new)\n    - routine provided:       show all signal flow in that routine\n    - neither:                show top-level program structure with JSR call graph\n\n    The mode parameter applies only when address is provided. Default 'data'\n    preserves full backward compatibility.\n\n    Args:\n        plc_id:     PLC identifier (e.g., 'CH880001')\n        address:    Optional address to trace (e.g., 'O:125/2', 'PD10:0').\n                    Accepts PLC-5 shorthand (B13/913) or canonical (B13:57/1).\n        routine:    Optional routine to visualize (e.g., 'MainRoutine')\n        max_depth:  Max levels of signal/contact following (default 5)\n        mode:       'data' (default) traces MOV/COP data flow.\n                    'logic' traces XIC/XIO backward contact logic via\n                    trace_logic_chain. Only applies when address is provided.\n\n    Returns:\n        'dot': Graphviz DOT string\n        'mode': 'logic_trace', 'signal_trace', 'routine_flow', or\n                'program_structure'\n        'stats': dict with node/edge counts (logic mode adds\n                 rungs_examined, terminals_found, max_depth_hit)\n        'render_hint': how to render the diagram\n        'summary': plain-English narrative (logic mode only)\n    ",
+        "inputSchema": {
+          "properties": {
+            "plc_id": {
+              "title": "Plc Id",
+              "type": "string"
+            },
+            "address": {
+              "default": null,
+              "title": "Address",
+              "type": "string"
+            },
+            "routine": {
+              "default": null,
+              "title": "Routine",
+              "type": "string"
+            },
+            "max_depth": {
+              "default": 5,
+              "title": "Max Depth",
+              "type": "integer"
+            },
+            "mode": {
+              "default": "data",
+              "title": "Mode",
+              "type": "string"
+            }
+          },
+          "required": [
+            "plc_id"
+          ],
+          "title": "generate_logic_flowArguments",
+          "type": "object"
+        }
+      },
+      {
+        "name": "generate_subsystem_diagram",
+        "description": "\n    Generate a Graphviz DOT diagram for a specific subsystem\n    defined by a list of key addresses.\n\n    Use this to visualize a control loop, equipment module, or\n    any functional grouping of signals within a PLC.\n\n    Example: generate_subsystem_diagram('CH880001',\n        ['N12:564', 'PD10:30', 'N12:400'])\n    Produces a visual diagram of the PM Office HVAC control loop.\n\n    Args:\n        plc_id: PLC identifier\n        addresses: list of key addresses defining the subsystem\n\n    Returns:\n        'dot': the DOT string\n        'stats': dict with primary_addresses, total_nodes, total_edges, rungs_covered\n        'render_hint': how to render the diagram\n    ",
+        "inputSchema": {
+          "properties": {
+            "plc_id": {
+              "title": "Plc Id",
+              "type": "string"
+            },
+            "addresses": {
+              "items": {},
+              "title": "Addresses",
+              "type": "array"
+            }
+          },
+          "required": [
+            "plc_id",
+            "addresses"
+          ],
+          "title": "generate_subsystem_diagramArguments",
+          "type": "object"
+        }
+      },
+      {
+        "name": "full_plc_documentation",
+        "description": "\n    Run the complete 19-step documentation pipeline for a PLC.\n\n    Generates all analysis documents, Graphviz diagrams, and a knowledge\n    graph. Stores everything in the NEXUS database for future retrieval.\n\n    This is the single-command full documentation workflow. Run it once per\n    PLC. Re-run to update (versions are tracked; old versions are superseded\n    but preserved).\n\n    Args:\n        plc_id: PLC identifier (e.g., 'CH880001')\n\n    Returns:\n        Pipeline result with step log, artifact counts, and timing.\n    ",
+        "inputSchema": {
+          "properties": {
+            "plc_id": {
+              "title": "Plc Id",
+              "type": "string"
+            }
+          },
+          "required": [
+            "plc_id"
+          ],
+          "title": "full_plc_documentationArguments",
+          "type": "object"
+        }
+      },
+      {
+        "name": "get_plc_document",
+        "description": "\n    Retrieve a stored document for a PLC.\n\n    Doc types: program_structure, io_map, pid_analysis, anomaly_report,\n    migration_assessment, sequence_of_operations, master_index\n\n    Returns the current (non-superseded) version.\n    ",
+        "inputSchema": {
+          "properties": {
+            "plc_id": {
+              "title": "Plc Id",
+              "type": "string"
+            },
+            "doc_type": {
+              "title": "Doc Type",
+              "type": "string"
+            }
+          },
+          "required": [
+            "plc_id",
+            "doc_type"
+          ],
+          "title": "get_plc_documentArguments",
+          "type": "object"
+        }
+      },
+      {
+        "name": "get_plc_diagram",
+        "description": "\n    Retrieve a stored diagram (Graphviz DOT) for a PLC.\n\n    Diagram types: network_impact, network_full, program_structure,\n    logic_flow_[subsystem], mind_map\n\n    Returns the DOT string ready for rendering.\n    ",
+        "inputSchema": {
+          "properties": {
+            "plc_id": {
+              "title": "Plc Id",
+              "type": "string"
+            },
+            "diagram_type": {
+              "title": "Diagram Type",
+              "type": "string"
+            }
+          },
+          "required": [
+            "plc_id",
+            "diagram_type"
+          ],
+          "title": "get_plc_diagramArguments",
+          "type": "object"
+        }
+      },
+      {
+        "name": "get_plc_knowledge_graph",
+        "description": "\n    Retrieve the knowledge graph for a PLC.\n\n    Optionally filter by node_type: controller, program, routine,\n    input, output, pid_loop, hmi_screen\n\n    Returns nodes and edges for rendering or analysis.\n    ",
+        "inputSchema": {
+          "properties": {
+            "plc_id": {
+              "title": "Plc Id",
+              "type": "string"
+            },
+            "node_type": {
+              "default": null,
+              "title": "Node Type",
+              "type": "string"
+            }
+          },
+          "required": [
+            "plc_id"
+          ],
+          "title": "get_plc_knowledge_graphArguments",
+          "type": "object"
+        }
+      },
+      {
+        "name": "find_docs_for_tag",
+        "description": "Vault notes that reference a NEXUS tag (confirmed + inferred), confirmed first.\n\n    Returns a list of dicts with keys:\n        file_path, plc_id, title, domain, ref_type\n    Returns [] if no vault notes reference the tag.\n    ",
+        "inputSchema": {
+          "properties": {
+            "tag_name": {
+              "title": "Tag Name",
+              "type": "string"
+            },
+            "plc_id": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Plc Id"
+            }
+          },
+          "required": [
+            "tag_name"
+          ],
+          "title": "find_docs_for_tagArguments",
+          "type": "object"
+        },
+        "outputSchema": {
+          "properties": {
+            "result": {
+              "items": {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              "title": "Result",
+              "type": "array"
+            }
+          },
+          "required": [
+            "result"
+          ],
+          "title": "find_docs_for_tagOutput",
+          "type": "object"
+        }
+      },
+      {
+        "name": "get_vault_note",
+        "description": "Frontmatter + body of a vault note, given its path relative to the vault root.\n\n    Reads the .md from disk (the index does not store body text). Returns\n    {\"file_path\",\"plc_id\",\"title\",\"domain\",\"frontmatter\",\"body\",\"wikilinks\",\n     \"confirmed_tags\",\"inferred_tags\",\"last_scanned\"}.\n\n    Rejects path traversal: resolves the path against the vault root and\n    verifies the resolved path stays inside it.  Returns {\"error\": ...} for\n    traversal attempts, missing files, and unexpected read failures.\n    ",
+        "inputSchema": {
+          "properties": {
+            "file_path": {
+              "title": "File Path",
+              "type": "string"
+            }
+          },
+          "required": [
+            "file_path"
+          ],
+          "title": "get_vault_noteArguments",
+          "type": "object"
+        }
+      },
+      {
+        "name": "generate_dox_tree",
+        "description": "Generate a DOX AGENTS.md hierarchy for a PLC in the active NEXUS DB.\n\n    Writes a regenerable, never-hand-edited tree to:\n      <NEXUS_SOURCE_ROOT>/.nexus/dox/<client_code>/<plc_id>/  (plant PLCs)\n      <NEXUS_LIBRARY_ROOT>/.nexus/dox/<client_code>/<plc_id>/ (library PLCs)\n\n    Plant/library routing is derived from the plcs.is_library flag set at ingest.\n    Client code is derived from the PLC ID prefix (CH###### \u2192 CTD, NFK-\u2026\u2192NFK, etc.).\n\n    Emits:\n    - .nexus/dox/AGENTS.md                             build-artifact warning (once per root)\n    - <client>/<plc_id>/AGENTS.md                      PLC summary + child index\n    - <client>/<plc_id>/areas/<ordinal>-<slug>/AGENTS.md  area derivation, FND, ANM, routing\n\n    Inline (stamped, DB-sourced): confirmed findings (FND) + ANM counts.\n    Routed (live, tool-computed): address_xref, find_interlocks, coverage_gap.\n\n    The tool performs NO DB writes and NO processor communication.\n    Atomic swap: rename(live\u2192bak) \u2192 rename(tmp\u2192live) \u2192 rmtree(bak).\n    Leftover detection on entry handles crashes mid-swap.\n\n    Args:\n        plc_id: PLC identifier (e.g. 'CH880001').\n\n    Returns a dict with:\n        generated_root, files, area_count, findings_counts, anomaly_counts, freshness.\n    ",
+        "inputSchema": {
+          "properties": {
+            "plc_id": {
+              "title": "Plc Id",
+              "type": "string"
+            }
+          },
+          "required": [
+            "plc_id"
+          ],
+          "title": "generate_dox_treeArguments",
+          "type": "object"
+        }
+      }
+    ]
+  }
+}

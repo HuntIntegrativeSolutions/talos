@@ -383,7 +383,7 @@ P0-Foundation (now)
   ├── Security review ✓ SEC-01 resolved 2026-06-18 (67 tests; SEC-02–07 are Low/Medium, non-blocking)
   ├── SEC-03 resolved 2026-06-18 ✓ (FORCE RLS V0003; DSN flip; heartbeat fix; talos_system reclaim; 70 tests)
   ├── RT-09: Policy-presence CI test ✓ (FORCE RLS + cross-board isolation test — SEC-03 work; cover PM tables done)
-  ├── RT-14: Disposition all ~85 NEXUS tools in capability manifest (SoR-writers excluded)
+  ├── RT-14: Disposition all ~85 NEXUS tools in capability manifest (SoR-writers excluded) ✓ (`capabilities/nexus/manifest.json`; 90 tools dispositioned, 18 excluded; `test_rt14_nexus_manifest.py`)
   ├── RT-20: Idempotency key spec — attempt-independent key; atomic UNIQUE-constraint insert
   ├── RT-06: no-client-identifiers-in-shared critic (non-waivable; ADR-005 enforcement)
   └── ADR-025–028, ADR-031–036 (written 2026-06-17) ✓

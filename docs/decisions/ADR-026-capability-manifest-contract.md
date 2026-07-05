@@ -32,12 +32,17 @@ The capability-manifest contract is accepted as binding. Key invariants:
 6. **Capability attachment is itself gated.** A new or updated manifest goes through
    propose → critics → human approve → pin before taking effect.
 
-## RT-14 action item (open, P0)
+## RT-14 action item (closed 2026-07-05)
 
-NEXUS exposes ~85 tools. Several are SoR-writers (`tag_annotate`, `ingest_*`,
-`promote_raw_addresses_to_tags`). The capability-manifest contract requires all 85 be explicitly
-dispositioned. SoR-writers must be excluded from the v1 NEXUS manifest. This is a P0 blocker.
-A CI validator must reject any manifest that exposes a NEXUS-fact-write tool.
+NEXUS exposes **90 tools** at v1.26.0 (the earlier "~85" figure was pre-growth). All 90 are
+explicitly dispositioned in `capabilities/nexus/dispositions.md`; 18 SoR-writers (`tag_annotate`,
+`ingest_*`, `promote_raw_addresses_to_tags`, `reconcile_descriptions`, `nexus_reindex`,
+`backfill_*`, and others surfaced during classification — see dispositions.md's "flagged for
+human review" section) are excluded from `capabilities/nexus/manifest.json`. The remaining 72
+tools are declared `read` (60) or `write`/`offline_artifact` (12). A CI test at
+`talos/tests/test_rt14_nexus_manifest.py` proves the manifest passes the generic validator and
+that no tool name in it matches the NEXUS SoR-write denylist, exercised both positively (real
+manifest) and negatively (a synthetic manifest exposing `tag_annotate` is caught).
 
 ## Consequences
 

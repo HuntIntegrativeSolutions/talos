@@ -1,0 +1,400 @@
+{
+  "manifest_version": "1.0",
+  "capability": {
+    "name": "nexus",
+    "version": "1.26.0",
+    "content_hash": "sha256:58056d9406b3b09555478f1d39c755408ed9bdabe0a9eefc095092ed9203cf9e"
+  },
+  "tools": [
+    {
+      "name": "address_trace_chain",
+      "profile": "read",
+      "safety": false
+    },
+    {
+      "name": "address_xref",
+      "profile": "read",
+      "safety": false
+    },
+    {
+      "name": "address_xref_summary",
+      "profile": "read",
+      "safety": false
+    },
+    {
+      "name": "aoi_instances_find",
+      "profile": "read",
+      "safety": false
+    },
+    {
+      "name": "aoi_library_search",
+      "profile": "read",
+      "safety": false
+    },
+    {
+      "name": "aoi_version_check",
+      "profile": "read",
+      "safety": false
+    },
+    {
+      "name": "classify_signal_roles",
+      "profile": "read",
+      "safety": false
+    },
+    {
+      "name": "coverage_gap",
+      "profile": "read",
+      "safety": false
+    },
+    {
+      "name": "dint_bit_audit",
+      "profile": "read",
+      "safety": false
+    },
+    {
+      "name": "extract_rung_comments",
+      "profile": "read",
+      "safety": false
+    },
+    {
+      "name": "find_area_interlocks",
+      "profile": "read",
+      "safety": false
+    },
+    {
+      "name": "find_docs_for_tag",
+      "profile": "read",
+      "safety": false
+    },
+    {
+      "name": "find_first_out_faults",
+      "profile": "read",
+      "safety": false
+    },
+    {
+      "name": "find_interlocks",
+      "profile": "read",
+      "safety": false
+    },
+    {
+      "name": "find_orphan_tags",
+      "profile": "read",
+      "safety": false
+    },
+    {
+      "name": "ftview_find_objects",
+      "profile": "read",
+      "safety": false
+    },
+    {
+      "name": "ftview_navigation_graph",
+      "profile": "read",
+      "safety": false
+    },
+    {
+      "name": "ftview_object_catalog",
+      "profile": "read",
+      "safety": false
+    },
+    {
+      "name": "ftview_object_example",
+      "profile": "read",
+      "safety": false
+    },
+    {
+      "name": "ftview_rung_xref",
+      "profile": "read",
+      "safety": false
+    },
+    {
+      "name": "ftview_screen_layout",
+      "profile": "read",
+      "safety": false
+    },
+    {
+      "name": "ftview_state_labels",
+      "profile": "read",
+      "safety": false
+    },
+    {
+      "name": "ftview_tag_pattern",
+      "profile": "read",
+      "safety": false
+    },
+    {
+      "name": "ftview_validate",
+      "profile": "write",
+      "safety": false,
+      "write_kind": "offline_artifact"
+    },
+    {
+      "name": "ftview_writable_tags_audit",
+      "profile": "read",
+      "safety": false
+    },
+    {
+      "name": "full_plc_documentation",
+      "profile": "write",
+      "safety": false,
+      "write_kind": "offline_artifact"
+    },
+    {
+      "name": "generate_ascii_rung",
+      "profile": "write",
+      "safety": false,
+      "write_kind": "offline_artifact"
+    },
+    {
+      "name": "generate_dox_tree",
+      "profile": "write",
+      "safety": false,
+      "write_kind": "offline_artifact"
+    },
+    {
+      "name": "generate_io_inventory",
+      "profile": "write",
+      "safety": false,
+      "write_kind": "offline_artifact"
+    },
+    {
+      "name": "generate_io_package",
+      "profile": "write",
+      "safety": false,
+      "write_kind": "offline_artifact"
+    },
+    {
+      "name": "generate_logic_flow",
+      "profile": "write",
+      "safety": false,
+      "write_kind": "offline_artifact"
+    },
+    {
+      "name": "generate_network_topology",
+      "profile": "write",
+      "safety": false,
+      "write_kind": "offline_artifact"
+    },
+    {
+      "name": "generate_plc_impact_diagram",
+      "profile": "write",
+      "safety": false,
+      "write_kind": "offline_artifact"
+    },
+    {
+      "name": "generate_sequence_of_operations",
+      "profile": "write",
+      "safety": false,
+      "write_kind": "offline_artifact"
+    },
+    {
+      "name": "generate_subsystem_diagram",
+      "profile": "write",
+      "safety": false,
+      "write_kind": "offline_artifact"
+    },
+    {
+      "name": "get_plc5_instruction_reference",
+      "profile": "read",
+      "safety": false
+    },
+    {
+      "name": "get_plc_diagram",
+      "profile": "read",
+      "safety": false
+    },
+    {
+      "name": "get_plc_document",
+      "profile": "read",
+      "safety": false
+    },
+    {
+      "name": "get_plc_knowledge_graph",
+      "profile": "read",
+      "safety": false
+    },
+    {
+      "name": "get_rung_pattern",
+      "profile": "read",
+      "safety": false
+    },
+    {
+      "name": "get_state_machine",
+      "profile": "read",
+      "safety": false
+    },
+    {
+      "name": "get_vault_note",
+      "profile": "read",
+      "safety": false
+    },
+    {
+      "name": "group_io_by_area",
+      "profile": "read",
+      "safety": false
+    },
+    {
+      "name": "hmi_coverage_by_plc",
+      "profile": "read",
+      "safety": false
+    },
+    {
+      "name": "hmi_project_summary",
+      "profile": "read",
+      "safety": false
+    },
+    {
+      "name": "hmi_search_by_address",
+      "profile": "read",
+      "safety": false
+    },
+    {
+      "name": "ignition_device_map_tool",
+      "profile": "read",
+      "safety": false
+    },
+    {
+      "name": "ignition_tag_search",
+      "profile": "read",
+      "safety": false
+    },
+    {
+      "name": "list_documented_plcs",
+      "profile": "read",
+      "safety": false
+    },
+    {
+      "name": "migration_gap_analysis",
+      "profile": "read",
+      "safety": false
+    },
+    {
+      "name": "migration_readiness",
+      "profile": "read",
+      "safety": false
+    },
+    {
+      "name": "migration_readiness_all",
+      "profile": "read",
+      "safety": false
+    },
+    {
+      "name": "nexus_status",
+      "profile": "read",
+      "safety": false
+    },
+    {
+      "name": "ote_conflict_audit",
+      "profile": "read",
+      "safety": false
+    },
+    {
+      "name": "plant_summary",
+      "profile": "read",
+      "safety": false
+    },
+    {
+      "name": "plc_impact_analysis",
+      "profile": "read",
+      "safety": false
+    },
+    {
+      "name": "render_rung",
+      "profile": "read",
+      "safety": false
+    },
+    {
+      "name": "routine_call_tree",
+      "profile": "read",
+      "safety": false
+    },
+    {
+      "name": "rung_forensic",
+      "profile": "write",
+      "safety": false,
+      "write_kind": "offline_artifact"
+    },
+    {
+      "name": "rung_search",
+      "profile": "read",
+      "safety": false
+    },
+    {
+      "name": "screen_inventory",
+      "profile": "read",
+      "safety": false
+    },
+    {
+      "name": "screen_tag_bindings",
+      "profile": "read",
+      "safety": false
+    },
+    {
+      "name": "search_rung_patterns",
+      "profile": "read",
+      "safety": false
+    },
+    {
+      "name": "semantic_rung_search",
+      "profile": "read",
+      "safety": false
+    },
+    {
+      "name": "tag_context",
+      "profile": "read",
+      "safety": false
+    },
+    {
+      "name": "tag_find_plant_wide",
+      "profile": "read",
+      "safety": false
+    },
+    {
+      "name": "tag_full_chain",
+      "profile": "read",
+      "safety": false
+    },
+    {
+      "name": "tag_screen_usage",
+      "profile": "read",
+      "safety": false
+    },
+    {
+      "name": "tag_search",
+      "profile": "read",
+      "safety": false
+    },
+    {
+      "name": "tag_suspect_descriptions",
+      "profile": "read",
+      "safety": false
+    },
+    {
+      "name": "tag_where_used",
+      "profile": "read",
+      "safety": false
+    },
+    {
+      "name": "verification_summary",
+      "profile": "read",
+      "safety": false
+    }
+  ],
+  "scopes": {
+    "default": "nexus:read",
+    "grantable": [
+      "nexus:read",
+      "nexus:write"
+    ],
+    "domain_restrictable": true
+  },
+  "resumable_cursor": {
+    "supported": false,
+    "token_field": null,
+    "progress_shape": null
+  },
+  "findings": {
+    "exposes_status": false,
+    "states": [],
+    "citable_states": []
+  }
+}
