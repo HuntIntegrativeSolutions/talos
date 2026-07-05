@@ -62,6 +62,7 @@ class SpineState(TypedDict):
     gate_justification: str | None    # set for waive/escalate; mandatory for those outcomes
     sdk_session_ids: dict             # {"read_node": session_id, ...}; P3b Agent SDK continuity
     budget: TaskBudget                # 4-axis budget tracking (ADR-030)
+    task_body: str | None             # tasks.body — read_node's live-mode prompt, when set (P3.5)
 
 
 # ---------------------------------------------------------------------------
@@ -75,6 +76,8 @@ def _call_with_fallback(
     prompt: str,
     resume: str | None,
     state: "SpineState",
+    allowed_tools: list[str] | None = None,
+    mcp_servers: dict | None = None,
 ) -> tuple[str, str, int]:
     """
     Try primary model, then fallback. Returns (text, session_id, tokens).
@@ -85,7 +88,7 @@ def _call_with_fallback(
 
     for model in (primary, fallback):
         try:
-            return call_model(model, prompt, resume=resume)
+            return call_model(model, prompt, resume=resume, allowed_tools=allowed_tools, mcp_servers=mcp_servers)
         except ModelCallError as exc:
             import logging
             logging.getLogger(__name__).warning("model %r failed: %s", model, exc)
@@ -104,17 +107,26 @@ def _call_with_fallback(
 
 def read_node(state: SpineState) -> dict:
     """
-    Fetch tag context from NEXUS (or stub). No Postgres writes — reference data only.
-    ADR-003/007: do not persist reference data to task_events or task_gate_results.
+    Fetch tag context from NEXUS (or stub). No Postgres writes of its own — this node
+    never writes to task_events or task_gate_results (ADR-003/007); TALOS's own state
+    stays read-only here.
 
-    In live mode, calls the Claude Agent SDK via talos.llm.call_model(). The session
-    ID is stored in sdk_session_ids for continuity on resume (ADR-029).
+    In live mode (ADR-038), calls the Claude Agent SDK via talos.llm.call_model() with the
+    NEXUS MCP server wired in and the manifest-filtered tool list (talos.nexus_client).
+    The model may invoke manifest-declared NEXUS tools, including write:offline_artifact
+    tools (e.g. full_plc_documentation) that write only to NEXUS's own derived-artifact
+    store, never TALOS's SoR or any live processor. The session ID is stored in
+    sdk_session_ids for continuity on resume (ADR-029). Also tracks and enforces the
+    ADR-030 token/tool-call budget for this call, raising BudgetExhaustedError on a hard
+    cap (P3.5).
     """
     from talos.spans import SpanContext, emit_span
     ctx = SpanContext(board_id=state["board_id"], task_id=state["task_id"], run_id=state["run_id"])
     emit_span(ctx, "spine.node.read_node.entry")
 
     sdk_session_ids = dict(state.get("sdk_session_ids") or {})
+
+    budget = dict(state.get("budget") or default_budget())
 
     if os.environ.get("TALOS_NEXUS_STUB") == "1":
         nexus_result = {"tag": "MOCK_TAG", "status": "confirmed"}
@@ -129,22 +141,52 @@ def read_node(state: SpineState) -> dict:
             latency_ms=1,
         )
     else:
-        from talos.config import resolve_model
+        from talos.config import resolve_model, TALOS_NEXUS_URL
+        from talos.errors import BudgetExhaustedError
         from talos.llm import ModelCallError, call_model
+        from talos.nexus_client import allowed_nexus_tools, load_nexus_manifest, nexus_mcp_server_config
 
         board_id = state["board_id"]
         primary, fallback = resolve_model("research")
 
+        manifest = load_nexus_manifest()
+        allowed_tools = allowed_nexus_tools(manifest)
+        mcp_servers = {"nexus": nexus_mcp_server_config(TALOS_NEXUS_URL)}
+
         resume_id = sdk_session_ids.get("read_node")
-        text, session_id, _tokens = _call_with_fallback(
-            primary, fallback, prompt=f"Fetch NEXUS context for task {state['task_id']}",
+        prompt = state.get("task_body") or f"Fetch NEXUS context for task {state['task_id']}"
+        text, session_id, tokens = _call_with_fallback(
+            primary, fallback, prompt=prompt,
             resume=resume_id, state=state,
+            allowed_tools=allowed_tools, mcp_servers=mcp_servers,
         )
         sdk_session_ids["read_node"] = session_id
         nexus_result = {"tag": text or "UNKNOWN", "status": "confirmed"}
 
+        # ADR-030 budget tracking (P3.5): accumulate this call's usage and
+        # enforce the hard caps. Soft-threshold handling is unaffected.
+        #
+        # tool_calls here counts model invocations (calls to call_model), not
+        # individual MCP tool invocations the model makes within one call — the
+        # SDK's ResultMessage does not expose a per-MCP-tool-call count. Only
+        # max_tokens is a faithfully-enforced cap; max_tool_calls is tracked
+        # against this coarser proxy and will under-count real tool-call volume.
+        budget["tokens_used"] += tokens
+        budget["tool_calls"] += 1
+        if budget["max_tokens"] and budget["tokens_used"] > budget["max_tokens"]:
+            raise BudgetExhaustedError(
+                task_id=state["task_id"], run_id=state["run_id"], board_id=board_id,
+                reason=f"max_tokens={budget['max_tokens']} exceeded (used {budget['tokens_used']})",
+            )
+        if budget["max_tool_calls"] and budget["tool_calls"] > budget["max_tool_calls"]:
+            raise BudgetExhaustedError(
+                task_id=state["task_id"], run_id=state["run_id"], board_id=board_id,
+                reason=f"max_tool_calls={budget['max_tool_calls']} exceeded (used {budget['tool_calls']}, "
+                       f"counting model invocations, not individual MCP tool calls)",
+            )
+
     emit_span(ctx, "spine.node.read_node.exit")
-    return {"nexus_result": nexus_result, "sdk_session_ids": sdk_session_ids}
+    return {"nexus_result": nexus_result, "sdk_session_ids": sdk_session_ids, "budget": budget}
 
 
 # ---------------------------------------------------------------------------

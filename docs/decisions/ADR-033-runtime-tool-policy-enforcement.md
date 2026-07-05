@@ -56,6 +56,12 @@ instructed to bypass it without modifying the proxy binary.
 
 ### v1 topology (stdio, same machine)
 
+**Superseded for transport by ADR-038**: the live v1 NEXUS server is Streamable HTTP on a
+separate host, not a co-located stdio subprocess. The Layer 2 proxy topology described below
+(a stdio pipe wrapper) does not apply to an HTTP transport and has not been redesigned or
+built — P3.5 implements only the Layer 1 `allowed_tools` filter (minimum-viable form). A
+future ADR must redesign Layer 2 as an HTTP-forwarding proxy before it is built.
+
 For the v1 on-prem stdio topology, the proxy is a lightweight Python process launched alongside
 the NEXUS MCP subprocess. It wraps the stdio pipe:
 

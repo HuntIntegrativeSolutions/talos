@@ -68,6 +68,9 @@ winner, chosen_by}` when the reviewer resolves a contradiction.
 - NEXUS MCP server runs as a local stdio subprocess on the same workstation as TALOS.
 - Neo4j (NEXUS graph) is deferred to post-v1. v1 uses Postgres for NEXUS read cache (ADR-035).
 - CR-08 confirmed: separate TALOS Neo4j instance (post-v1) + NEXUS read-through over MCP.
+- **Superseded for transport only by ADR-038**: the live v1 NEXUS server is a Streamable
+  HTTP MCP server on a separate host, not a co-located stdio subprocess. All other content
+  in this section and ADR stands unchanged.
 
 ## Consequences
 

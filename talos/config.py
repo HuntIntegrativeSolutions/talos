@@ -15,6 +15,7 @@ Model strings are opaque; TALOS passes them through to the LLM client unchanged.
 
 from __future__ import annotations
 
+import os
 import tomllib
 import pathlib
 import logging
@@ -22,6 +23,10 @@ import logging
 log = logging.getLogger(__name__)
 
 _TOML_PATH = pathlib.Path(__file__).resolve().parent.parent / "talos.toml"
+
+# NEXUS MCP server URL (ADR-038: Streamable HTTP, not stdio). Ignored when
+# TALOS_NEXUS_STUB=1.
+TALOS_NEXUS_URL = os.environ.get("TALOS_NEXUS_URL", "http://10.0.0.80:8765/mcp")
 
 _STEPS = ("triage", "research", "plan", "gate", "execute", "crystallize")
 

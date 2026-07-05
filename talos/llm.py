@@ -32,6 +32,8 @@ def call_model(
     resume: str | None = None,
     *,
     span_ctx=None,
+    allowed_tools: list[str] | None = None,
+    mcp_servers: dict | None = None,
 ) -> tuple[str, str, int]:
     """
     Call the Claude Agent SDK synchronously.
@@ -41,6 +43,10 @@ def call_model(
 
     Under TALOS_NEXUS_STUB=1: returns stub values without calling query().
     If span_ctx (SpanContext) is provided, emits an llm.call span with latency.
+
+    allowed_tools/mcp_servers (ADR-038): optional NEXUS MCP wiring, built by
+    talos.nexus_client from the pinned capability manifest. Ignored entirely
+    under TALOS_NEXUS_STUB=1.
     """
     import os
     if os.environ.get("TALOS_NEXUS_STUB") == "1":
@@ -49,7 +55,7 @@ def call_model(
 
     t0 = time.monotonic()
     try:
-        result = asyncio.run(_async_call(model, prompt, resume))
+        result = asyncio.run(_async_call(model, prompt, resume, allowed_tools=allowed_tools, mcp_servers=mcp_servers))
         latency_ms = int((time.monotonic() - t0) * 1000)
         _maybe_emit_llm_span(span_ctx, model, result[2], 0, latency_ms)
         return result
@@ -79,6 +85,9 @@ async def _async_call(
     model: str,
     prompt: str,
     resume: str | None,
+    *,
+    allowed_tools: list[str] | None = None,
+    mcp_servers: dict | None = None,
 ) -> tuple[str, str, int]:
     from claude_agent_sdk import ClaudeAgentOptions, ResultMessage, query  # type: ignore[import]
 
@@ -87,7 +96,11 @@ async def _async_call(
     session_id = ""
     tokens = 0
 
-    options = ClaudeAgentOptions(model=model, allowed_tools=[])
+    options = ClaudeAgentOptions(
+        model=model,
+        allowed_tools=allowed_tools or [],
+        mcp_servers=mcp_servers or {},
+    )
 
     async for msg in query(prompt=prompt, options=options):
         if isinstance(msg, ResultMessage):

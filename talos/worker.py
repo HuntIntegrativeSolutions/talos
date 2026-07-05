@@ -153,7 +153,7 @@ def make_heartbeat_callback(run_id: int, board_id: str):
     return callback
 
 
-def claim_and_run(board_id: str, task_id: str, graph=None) -> str:
+def claim_and_run(board_id: str, task_id: str, graph=None, initial_budget=None) -> str:
     """
     Claim a ready task and drive the spine graph until it pauses at gate_node.
 
@@ -167,6 +167,11 @@ def claim_and_run(board_id: str, task_id: str, graph=None) -> str:
         A compiled LangGraph graph. Defaults to build_graph() (MemorySaver).
         Tests inject a shared graph instance so the same in-process MemorySaver
         is available to both claim_and_run and the gate API endpoint.
+    initial_budget:
+        Optional TaskBudget override. Defaults to default_budget() (all caps
+        unlimited). Tests inject a tiny budget (e.g. max_tokens=1) to drive
+        the real ADR-030 hard-cap raise path end-to-end (P3.5 harness) without
+        a schema migration for a per-task budget column.
     """
     conn = get_conn()
     try:
@@ -176,7 +181,7 @@ def claim_and_run(board_id: str, task_id: str, graph=None) -> str:
         with board_scope(conn, board_id) as cur:
             # 1. Fetch task and board (for model_config), assert status == 'ready'
             cur.execute(
-                "SELECT t.id, t.status, t.model_override, t.max_runtime_seconds, "
+                "SELECT t.id, t.status, t.model_override, t.max_runtime_seconds, t.body, "
                 "       b.model_config "
                 "FROM tasks t JOIN boards b ON b.id = t.board_id "
                 "WHERE t.id = %s AND t.board_id = %s",
@@ -245,7 +250,8 @@ def claim_and_run(board_id: str, task_id: str, graph=None) -> str:
         "edited_deliverable": None,
         "gate_justification": None,
         "sdk_session_ids": {},
-        "budget": default_budget(),
+        "budget": initial_budget if initial_budget is not None else default_budget(),
+        "task_body": task.get("body"),
     }
 
     from talos.spans import SpanContext, emit_span
@@ -341,7 +347,18 @@ def _handle_model_failure(exc: ModelFailureError) -> None:
 
 
 async def run_dispatcher(graph, board_id: str):
-    """Launch TALOS_WORKER_COUNT concurrent worker slots."""
+    """
+    Launch TALOS_WORKER_COUNT concurrent worker slots.
+
+    Under real (non-stub) NEXUS wiring, verifies the on-disk manifest's
+    content_hash is self-consistent before claiming any task (ADR-038's
+    lightweight, non-DB-pinned self-check; ADR-032/034's full board-scoped
+    manifest_hash check is deferred, requires a migration).
+    """
+    if os.environ.get("TALOS_NEXUS_STUB") != "1":
+        from talos.nexus_client import load_nexus_manifest, manifest_selfcheck
+        manifest_selfcheck(load_nexus_manifest())
+
     await asyncio.gather(*[
         _worker_slot(i, graph, board_id)
         for i in range(TALOS_WORKER_COUNT)

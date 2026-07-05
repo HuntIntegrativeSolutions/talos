@@ -388,13 +388,20 @@ P0-Foundation (now)
   ├── RT-06: no-client-identifiers-in-shared critic (non-waivable; ADR-005 enforcement)
   └── ADR-025–028, ADR-031–036 (written 2026-06-17) ✓
 
-P3.5-Harness (prerequisite before P4)
-  ├── Prerequisite: Multi-provider LLM config (ADR-031) — Claude + Ollama + OAuth
-  ├── Wire real NEXUS MCP stdio subprocess (drop TALOS_NEXUS_STUB=1)
-  ├── Run full_plc_documentation on real HIS L5X (local dev, NDA data, never CI)
+P3.5-Harness (prerequisite before P4) ✓ closed 2026-07-05
+  ├── Prerequisite: Multi-provider LLM config (ADR-031) — Claude + Ollama + OAuth (deferred, out of P3.5 scope)
+  ├── Wire real NEXUS MCP server — Streamable HTTP, not stdio (ADR-038) ✓
+  │     (TALOS_NEXUS_STUB=1 remains the CI/test default; real wiring is opt-in via
+  │     TALOS_NEXUS_STUB unset + TALOS_NEXUS_URL)
+  ├── Run full_plc_documentation on real HIS L5X (local dev, NDA data, never CI) ✓
+  │     (docs/p35-harness-results.md — 2 live runs, real PLC (identifier withheld))
   ├── [Blocker cleared] Heartbeat/reclaim correctness under talos_app RLS ✓ (SEC-03 / ADR-037)
-  └── Exit criteria: reclaim no double-apply, heartbeat during long NEXUS call,
-      model fallback on provider error, budget hard-cap → escalate not crash
+  └── Exit criteria (stub-mode CI tests in talos/tests/test_p35_harness.py +
+      live evidence in docs/p35-harness-results.md) ✓
+        - reclaim no double-apply ✓
+        - heartbeat during long NEXUS call ✓
+        - model fallback on provider error ✓
+        - budget hard-cap → escalate not crash ✓
 
 P4-Memory (Postgres + Chroma in v1; Neo4j + Redis deferred)
   ├── Chroma: documentation chunk embeddings (configurable local/cloud embedding model)
