@@ -13,14 +13,15 @@ from __future__ import annotations
 
 import json
 import os
-from typing import TypedDict
+from typing import Annotated, TypedDict
 
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import END, START, StateGraph
-from langgraph.types import interrupt
+from langgraph.types import Send, interrupt
 
 from talos.critics.registry import run_all as run_all_critics
 from talos.db import board_scope, get_conn
+from talos.graph.reducers import merge_budget, merge_disjoint_dicts
 
 
 class TaskBudget(TypedDict):
@@ -47,22 +48,59 @@ def default_budget() -> TaskBudget:
     )
 
 
+_BUDGET_LIMIT_KEYS = (
+    "max_spend_usd", "max_tokens", "max_tool_calls", "max_elapsed_seconds", "soft_spend_usd",
+)
+
+
+def _budget_delta(source_budget: dict, *, spent_usd: float = 0.0, tokens_used: int = 0, tool_calls: int = 0) -> dict:
+    """
+    Build one read branch's contribution to the multi-writer `budget` channel:
+    the limit fields copied forward unchanged from `source_budget` (every
+    branch reads the same pre-fan-out budget, so these are identical across
+    branches) plus this branch's own accumulator delta. See
+    talos.graph.reducers.merge_budget for why every writer must include the
+    limit fields, not just the accumulator delta.
+    """
+    delta = {key: source_budget[key] for key in _BUDGET_LIMIT_KEYS if key in source_budget}
+    delta["spent_usd"] = spent_usd
+    delta["tokens_used"] = tokens_used
+    delta["tool_calls"] = tool_calls
+    return delta
+
+
 class SpineState(TypedDict):
+    """
+    P4b (RT-21) reducer audit: `budget`, `sdk_session_ids`, and `context_branches`
+    are the only multi-writer channels in this graph — each is written
+    concurrently by the three parallel read branches (read_node,
+    read_branch_nexus_secondary, read_branch_chroma) fanned out from START via
+    dispatch_reads/Send, so each is backed by a commutative/associative reducer
+    (talos.graph.reducers.merge_budget / merge_disjoint_dicts). Every other
+    field below is single-writer, last-write-wins by construction — exactly one
+    node ever writes it per invocation — and stays a plain field. Do not add a
+    reducer to one of them without re-deriving why concurrent writes can occur;
+    do not remove the reducer from one of the three above without re-deriving
+    why they're safe as last-write-wins.
+    """
     board_id: str
     task_id: str
     attempt_no: int
     run_id: int          # task_runs.id BIGINT — set by worker at claim time
     session_key: str     # "task:{board_id}:{task_id}:{attempt_no}"
-    nexus_result: dict
-    deliverable: dict
-    critic_results: list  # list of critic verdict dicts (JSON-serializable for checkpoint)
-    gate_outcome: str | None
-    approved_by: str | None
-    edited_deliverable: dict | None   # set when outcome='edit'; deliverable_node uses on re-entry
-    gate_justification: str | None    # set for waive/escalate; mandatory for those outcomes
-    sdk_session_ids: dict             # {"read_node": session_id, ...}; P3b Agent SDK continuity
-    budget: TaskBudget                # 4-axis budget tracking (ADR-030)
-    task_body: str | None             # tasks.body — read_node's live-mode prompt, when set (P3.5)
+    nexus_result: dict    # single-writer: only read_node (kept direct/unchanged — see read_node docstring)
+    deliverable: dict     # single-writer: only deliverable_node
+    critic_results: list  # single-writer: only deliverable_node (list of critic verdict dicts, JSON-serializable for checkpoint)
+    gate_outcome: str | None        # single-writer: only gate_node
+    approved_by: str | None         # single-writer: only gate_node
+    edited_deliverable: dict | None   # single-writer: gate_node sets it, deliverable_node clears it on re-entry
+    gate_justification: str | None    # single-writer: only gate_node; set for waive/escalate; mandatory for those outcomes
+    sdk_session_ids: Annotated[dict, merge_disjoint_dicts]  # multi-writer: read_node + read_branch_nexus_secondary; P3b Agent SDK continuity
+    budget: Annotated[TaskBudget, merge_budget]              # multi-writer: all 3 read branches; 4-axis budget tracking (ADR-030)
+    task_body: str | None             # single-writer: set by worker at claim time, never by a node; tasks.body — read_node's live-mode prompt (P3.5)
+    context_branches: Annotated[dict, merge_disjoint_dicts]  # multi-writer: all 3 read branches (P4b fan-out); keyed by branch id
+    chroma_chunks: list    # single-writer: only merge_node; folded from context_branches["chroma"] for P5 to consume later
+    nexus_supplemental: list  # single-writer: only merge_node; folded from context_branches["nexus_secondary"]
 
 
 # ---------------------------------------------------------------------------
@@ -134,6 +172,16 @@ def read_node(state: SpineState) -> dict:
     sdk_session_ids for continuity on resume (ADR-029). Also tracks and enforces the
     ADR-030 token/tool-call budget for this call, raising BudgetExhaustedError on a hard
     cap (P3.5).
+
+    P4b fan-out (RT-21): this is one of three parallel branches dispatched from
+    START (see dispatch_reads); it keeps writing `nexus_result` directly and its
+    return contract for callers invoking it in isolation is unchanged (e.g.
+    test_spine.py::test_nexus_stub_read calls read_node(state) directly and
+    asserts on result["nexus_result"]). Only its `budget` contribution changed
+    shape — it now returns this call's *delta* (not the running total), since
+    `budget` is now a multi-writer reducer channel (talos.graph.reducers.merge_budget)
+    shared with the other two read branches; returning an absolute running total
+    here would double-count the baseline when merged with theirs.
     """
     from talos.spans import SpanContext, emit_span
     ctx = SpanContext(board_id=state["board_id"], task_id=state["task_id"], run_id=state["run_id"])
@@ -141,11 +189,13 @@ def read_node(state: SpineState) -> dict:
 
     sdk_session_ids = dict(state.get("sdk_session_ids") or {})
 
-    budget = dict(state.get("budget") or default_budget())
+    baseline_budget = dict(state.get("budget") or default_budget())
+    budget = dict(baseline_budget)
 
     if os.environ.get("TALOS_NEXUS_STUB") == "1":
         nexus_result = {"tag": "MOCK_TAG", "status": "confirmed"}
         sdk_session_ids["read_node"] = "stub-session-id"
+        budget["tool_calls"] += 1
         # Emit a stub llm.call span with > 0 latency so P3d tests can assert latency_ms.
         emit_span(
             ctx, "llm.call",
@@ -219,8 +269,122 @@ def read_node(state: SpineState) -> dict:
                        f"counting model invocations, not individual MCP tool calls)",
             )
 
+    delta_budget = _budget_delta(
+        baseline_budget,
+        spent_usd=budget["spent_usd"] - baseline_budget["spent_usd"],
+        tokens_used=budget["tokens_used"] - baseline_budget["tokens_used"],
+        tool_calls=budget["tool_calls"] - baseline_budget["tool_calls"],
+    )
+
     emit_span(ctx, "spine.node.read_node.exit")
-    return {"nexus_result": nexus_result, "sdk_session_ids": sdk_session_ids, "budget": budget}
+    return {
+        "nexus_result": nexus_result,
+        "sdk_session_ids": sdk_session_ids,
+        "budget": delta_budget,
+        "context_branches": {"nexus_primary": nexus_result},
+    }
+
+
+# ---------------------------------------------------------------------------
+# P4b fan-out (RT-21): sibling read branches + merge
+# ---------------------------------------------------------------------------
+
+def dispatch_reads(state: SpineState) -> list[Send]:
+    """
+    Fan-out entrypoint replacing the old static START->read_node edge. Sends the
+    same input state to three parallel branches: read_node (kept as its own node
+    name/function, unchanged direct-call contract — see its docstring),
+    read_branch_nexus_secondary, and read_branch_chroma. All three write into the
+    reducer-backed budget/sdk_session_ids/context_branches channels
+    (talos.graph.reducers); merge_node folds context_branches into plain fields
+    before deliverable_node runs.
+    """
+    return [
+        Send("read_node", state),
+        Send("read_branch_nexus_secondary", state),
+        Send("read_branch_chroma", state),
+    ]
+
+
+def read_branch_nexus_secondary(state: SpineState) -> dict:
+    """
+    Second, independent read branch (P4b fan-out) — exercises the multi-writer
+    budget/sdk_session_ids/context_branches reducers alongside read_node.
+
+    In stub mode (TALOS_NEXUS_STUB=1) returns a canned supplemental result so the
+    fan-out and its reducers are exercised in CI. In live mode this is currently a
+    documented no-op (zero budget delta, no context contribution): a genuinely
+    independent second live NEXUS read target isn't defined yet, and wiring one
+    here would also double-fire the mocked talos.llm.call_model in the P3.5
+    harness tests (test_p35_harness.py), which assert on call-count/sequencing
+    for exactly one call. The reducer/fan-out proof this piece delivers doesn't
+    depend on live-mode wiring — stub mode (what CI runs) is what's tested.
+    """
+    from talos.spans import SpanContext, emit_span
+    ctx = SpanContext(board_id=state["board_id"], task_id=state["task_id"], run_id=state["run_id"])
+    emit_span(ctx, "spine.node.read_branch_nexus_secondary.entry")
+
+    source_budget = state.get("budget") or default_budget()
+
+    if os.environ.get("TALOS_NEXUS_STUB") == "1":
+        result = {"tag": "MOCK_TAG_SUPPLEMENTAL", "status": "confirmed"}
+        contribution = {
+            "context_branches": {"nexus_secondary": result},
+            "sdk_session_ids": {"nexus_secondary": "stub-session-id-secondary"},
+            "budget": _budget_delta(source_budget, tool_calls=1),
+        }
+    else:
+        contribution = {"budget": _budget_delta(source_budget)}
+
+    emit_span(ctx, "spine.node.read_branch_nexus_secondary.exit")
+    return contribution
+
+
+def read_branch_chroma(state: SpineState) -> dict:
+    """
+    Chroma documentation-chunk read branch (P4b fan-out). Wires talos.memory.chroma_store's
+    P4a query() stub into the spine for the first time. Degrades to an empty chunk
+    list on any failure (missing embedding model/backing store — the module's own
+    documented failure mode) rather than failing the whole read fan-out.
+    """
+    from talos.spans import SpanContext, emit_span
+    ctx = SpanContext(board_id=state["board_id"], task_id=state["task_id"], run_id=state["run_id"])
+    emit_span(ctx, "spine.node.read_branch_chroma.entry")
+
+    try:
+        from talos.memory.chroma_store import query as chroma_query
+        query_text = state.get("task_body") or state["task_id"]
+        chunks = chroma_query(state["board_id"], query_text, k=5)
+    except Exception:
+        import logging
+        logging.getLogger(__name__).warning(
+            "chroma read branch failed for task %s; degrading to empty chunks",
+            state["task_id"],
+        )
+        chunks = []
+
+    source_budget = state.get("budget") or default_budget()
+    emit_span(ctx, "spine.node.read_branch_chroma.exit")
+    return {
+        "context_branches": {"chroma": {"chunks": chunks}},
+        "budget": _budget_delta(source_budget, tool_calls=1),
+    }
+
+
+def merge_node(state: SpineState) -> dict:
+    """
+    Folds the P4b fan-out's context_branches into plain, single-writer fields for
+    downstream/future (P5) consumption. nexus_result itself is untouched here —
+    read_node already writes it directly, kept that way so it remains callable/
+    testable in isolation with its original return contract.
+    """
+    context_branches = state.get("context_branches") or {}
+    chroma_chunks = (context_branches.get("chroma") or {}).get("chunks", [])
+    nexus_secondary = context_branches.get("nexus_secondary")
+    return {
+        "chroma_chunks": chroma_chunks,
+        "nexus_supplemental": [nexus_secondary] if nexus_secondary else [],
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -699,12 +863,22 @@ def build_graph(checkpointer=None, node_callback=None):
 
     builder = StateGraph(SpineState)
     builder.add_node("read_node", maybe_wrap(read_node))
+    builder.add_node("read_branch_nexus_secondary", maybe_wrap(read_branch_nexus_secondary))
+    builder.add_node("read_branch_chroma", maybe_wrap(read_branch_chroma))
+    builder.add_node("merge_node", maybe_wrap(merge_node))
     builder.add_node("deliverable_node", maybe_wrap(deliverable_node))
     builder.add_node("gate_node", maybe_wrap(gate_node))
     builder.add_node("post_gate_node", maybe_wrap(post_gate_node))
 
-    builder.add_edge(START, "read_node")
-    builder.add_edge("read_node", "deliverable_node")
+    # P4b fan-out (RT-21): three parallel read branches, fanned in at merge_node.
+    builder.add_conditional_edges(
+        START, dispatch_reads,
+        ["read_node", "read_branch_nexus_secondary", "read_branch_chroma"],
+    )
+    builder.add_edge("read_node", "merge_node")
+    builder.add_edge("read_branch_nexus_secondary", "merge_node")
+    builder.add_edge("read_branch_chroma", "merge_node")
+    builder.add_edge("merge_node", "deliverable_node")
     builder.add_edge("deliverable_node", "gate_node")
     builder.add_conditional_edges("gate_node", _route_after_gate)
     builder.add_edge("post_gate_node", END)

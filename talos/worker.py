@@ -252,6 +252,9 @@ def claim_and_run(board_id: str, task_id: str, graph=None, initial_budget=None) 
         "sdk_session_ids": {},
         "budget": initial_budget if initial_budget is not None else default_budget(),
         "task_body": task.get("body"),
+        "context_branches": {},
+        "chroma_chunks": [],
+        "nexus_supplemental": [],
     }
 
     from talos.spans import SpanContext, emit_span
