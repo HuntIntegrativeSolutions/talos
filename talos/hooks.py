@@ -7,7 +7,15 @@ A hook that raises is logged and swallowed — hooks never block task transition
 P3d events:
   on_task_approved — fires after post_gate_node completes for approve/waive/escalate outcomes.
 
-Future events (P4+): on_task_rejected, on_rule_extracted, on_milestone_met, etc.
+P4b events:
+  on_milestone_risk_escalated — fires after talos.pm_escalator.process_pending_escalations
+    creates an issue-task (HIGH/missed) or remediation-task (MEDIUM/at_risk).
+
+Future events (P4+): on_task_rejected, on_rule_extracted. `on_milestone_met`
+remains a documented placeholder (no consumer exists yet) for a future
+gate-UI feature firing when a milestone reaches status='met' — distinct from
+on_milestone_risk_escalated above, which fires on the *risk* path (at_risk/
+missed), not on 'met'.
 """
 
 from __future__ import annotations

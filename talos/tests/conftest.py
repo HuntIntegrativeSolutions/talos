@@ -137,6 +137,35 @@ def pg_setup(pg_container):
     """)
     cur.execute("ALTER TABLE nexus_cache FORCE ROW LEVEL SECURITY")
 
+    # Apply V0006 content directly (milestone_escalation_log — ADR-016 action
+    # item #7 / P4b DoD #5). Also mirrors V0006's task_events.task_id NOT NULL
+    # fix (pm_escalate_milestone_risk() inserts task_id=NULL for milestone
+    # events, which the original NOT NULL constraint rejected).
+    cur.execute("ALTER TABLE task_events ALTER COLUMN task_id DROP NOT NULL")
+    cur.execute("""
+        CREATE TABLE milestone_escalation_log (
+            id               BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+            board_id         TEXT NOT NULL REFERENCES boards(id),
+            task_event_id    BIGINT NOT NULL,
+            milestone_id     TEXT NOT NULL,
+            severity         TEXT NOT NULL CHECK (severity IN ('HIGH', 'MEDIUM')),
+            created_task_id  TEXT,
+            handled_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
+            UNIQUE (task_event_id)
+        )
+    """)
+    cur.execute("ALTER TABLE milestone_escalation_log ENABLE ROW LEVEL SECURITY")
+    cur.execute("""
+        CREATE POLICY milestone_escalation_log_board_isolation ON milestone_escalation_log
+            USING     (board_id = current_setting('app.board_id', true))
+            WITH CHECK (board_id = current_setting('app.board_id', true))
+    """)
+    cur.execute("""
+        CREATE POLICY milestone_escalation_log_admin_bypass ON milestone_escalation_log
+            USING (current_user = 'talos_admin')
+    """)
+    cur.execute("ALTER TABLE milestone_escalation_log FORCE ROW LEVEL SECURITY")
+
     # Create talos_app as NOSUPERUSER so RLS applies to it.
     # The table owner (postgres) bypasses RLS; talos_app does not.
     cur.execute(

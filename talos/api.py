@@ -277,7 +277,7 @@ def get_gate_status(board_id: str, task_id: str) -> dict[str, Any]:
             # entered review via a worker error-escalation path rather than
             # deliverable_node (no deliverable was ever produced).
             cur.execute(
-                "SELECT deliverable FROM tasks WHERE id = %s AND board_id = %s",
+                "SELECT deliverable, body FROM tasks WHERE id = %s AND board_id = %s",
                 (task_id, board_id),
             )
             deliverable_row = cur.fetchone()
@@ -299,10 +299,18 @@ def get_gate_status(board_id: str, task_id: str) -> dict[str, Any]:
         conn.close()
     if gate_row is None:
         raise HTTPException(status_code=404, detail="task not found")
+    from talos.task_origin import parse_origin
+
+    origin = parse_origin(deliverable_row["body"]) if deliverable_row else None
+    is_milestone_origin = bool(origin) and origin.get("talos_origin") in (
+        "milestone_issue", "milestone_remediation",
+    )
+
     result = dict(gate_row)
     result["critics"] = critics
     result["deliverable"] = deliverable_row["deliverable"] if deliverable_row else None
     result["nexus_results_freshness"] = nexus_results_freshness
+    result["milestone_escalation_origin"] = origin if is_milestone_origin else None
     return result
 
 

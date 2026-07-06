@@ -461,10 +461,27 @@ def deliverable_node(state: SpineState) -> dict:
     for v in verdicts:
         emit_span(ctx, f"spine.critic.{v['name']}", payload={"passed": v.get("passed"), "verdict": v.get("verdict")})
 
+    # P4b (ADR-016 action item #7): a milestone-remediation-origin task gets a
+    # shortened gate — every non-safety critic's persisted `required` flag is
+    # downgraded to False so it becomes advisory (v_gate_status.all_required_pass
+    # ignores it). Safety critics (safety_class=True, e.g. no_live_write_in_deliverable,
+    # RT-06) are NEVER downgraded — CR-26's human-approval-still-mandatory invariant
+    # is untouched. Only the persisted rows are downgraded; `verdicts` (returned in
+    # state["critic_results"] for audit) keeps each critic's original required-ness.
+    from talos.task_origin import parse_origin
+    origin = parse_origin(state.get("task_body"))
+    if origin and origin.get("talos_origin") == "milestone_remediation":
+        persisted_verdicts = [
+            {**v, "required": False} if not v["safety_class"] else v
+            for v in verdicts
+        ]
+    else:
+        persisted_verdicts = verdicts
+
     conn = get_conn()
     try:
         with board_scope(conn, state["board_id"]) as cur:
-            for v in verdicts:
+            for v in persisted_verdicts:
                 cur.execute(
                     """
                     INSERT INTO task_gate_results
