@@ -22,6 +22,7 @@ data/
 *.db
 *.sqlite
 .talos/
+chroma_data/
 
 # OS / editor
 .DS_Store

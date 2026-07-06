@@ -73,6 +73,30 @@ def _load_toml_models() -> dict[str, str]:
 
 _TOML_MODELS: dict[str, str] = _load_toml_models()
 
+_MEMORY_DEFAULTS: dict[str, str] = {
+    "embedding_provider": "local",
+    "embedding_model": "sentence-transformers/all-MiniLM-L6-v2",
+}
+
+
+def _load_toml_memory() -> dict[str, str]:
+    """talos.toml [memory] section (P4a) — embedding_provider/embedding_model.
+    Absent-file/parse-failure handling mirrors _load_toml_models() exactly."""
+    if not _TOML_PATH.exists():
+        return {}
+    try:
+        with open(_TOML_PATH, "rb") as f:
+            data = tomllib.load(f)
+        return data.get("memory", {})
+    except Exception:
+        log.warning("talos.toml could not be parsed; using hardcoded memory defaults")
+        return {}
+
+
+def get_memory_config() -> dict[str, str]:
+    """Returns {embedding_provider, embedding_model}, talos.toml [memory] over defaults."""
+    return {**_MEMORY_DEFAULTS, **_load_toml_memory()}
+
 
 def resolve_model(
     step: str,

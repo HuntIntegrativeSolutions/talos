@@ -26,6 +26,8 @@ app = [
     "PyJWT>=2.0",
     "cryptography",
     "argon2-cffi",
+    "chromadb",
+    "sentence-transformers",
 ]
 test = [
     "pytest",
@@ -44,6 +46,8 @@ test = [
     "PyJWT>=2.0",
     "cryptography",
     "argon2-cffi",
+    "chromadb",
+    "sentence-transformers",
 ]
 experiment = [
     "claude-agent-sdk",

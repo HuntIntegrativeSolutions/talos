@@ -32,6 +32,12 @@ async def _lifespan(app):
         raise RuntimeError(
             "TALOS_JWT_SECRET is required. Set it before starting the server."
         )
+    # post_gate_node (and its on_task_approved hook fire) only ever runs here,
+    # inside the API process — submit_gate_outcome() resumes the graph past
+    # the gate interrupt via Command(resume=...); worker.py's graph.invoke()
+    # only ever runs the pre-interrupt portion of the spine (P4a).
+    from talos.memory.chroma_store import register_ingest_hook
+    register_ingest_hook()
     yield
 
 
