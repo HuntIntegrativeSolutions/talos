@@ -63,9 +63,31 @@ with function-calling support) is available:
    accidental fallthrough to the anthropic driver would fail loudly, not
    silently succeed).
 
+## (d) openai_compatible driver — live via DeepSeek (added 2026-07-05)
+
+**VERIFIED — real DeepSeek API (`https://api.deepseek.com/v1`, key from the
+operator's Hermes config, never committed).** Three live checks on the dev
+workstation:
+
+1. **Direct call:** `call_model(ModelRef('openai_compatible','deepseek-chat'), …)`
+   → `DEEPSEEK-LIVE`, 6 tokens. Real HTTP path, auth, and token accounting proven.
+2. **NEXUS tool-call loop:** with the RT-14 manifest and
+   `allowed_tools=['nexus_status']` against live NEXUS (10.0.0.80), deepseek-chat
+   invoked the tool through the function-calling bridge and reported real data
+   back (schema v14, 2 PLCs, 919 tags). This is the first live proof of the
+   non-Anthropic tool loop — the air-gap-critical code path — against a real
+   model and the real MCP server.
+3. **Cross-provider fallback:** bogus anthropic primary → real `ModelCallError`
+   → deepseek-chat fallback returned `CROSS-PROVIDER-OK`. Check (c)'s
+   cross-provider leg is now closed.
+
+Remaining pending after this: only (b)'s literal Ollama/local-weights run —
+the *driver code* it would exercise is now live-proven via DeepSeek; what (b)
+still uniquely proves is the zero-cloud-egress deployment configuration itself.
+
 ## (c) Fallback on a real forced primary failure
 
-**PARTIALLY VERIFIED 2026-07-05 — same-provider fallback proven live; cross-provider
+**FULLY VERIFIED (see (d) item 3 for the cross-provider leg). PARTIALLY VERIFIED 2026-07-05 — same-provider fallback proven live; cross-provider
 leg still pending Ollama hardware.** Live check on the dev workstation via OAuth:
 
 ```
