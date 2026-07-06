@@ -22,7 +22,7 @@ def get_url() -> str:
 
 
 def run_migrations_online() -> None:
-    url = config.get_main_option("sqlalchemy.url") or get_url()
+    url = get_url()
     connectable = create_engine(url, poolclass=pool.NullPool)
     with connectable.connect() as connection:
         context.configure(connection=connection, target_metadata=None)

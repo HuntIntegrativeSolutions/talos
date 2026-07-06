@@ -14,7 +14,7 @@ down_revision: Union[str, None] = None
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
-_ENGINE_DIR = pathlib.Path(__file__).resolve().parent.parent
+_ENGINE_DIR = pathlib.Path(__file__).resolve().parent.parent.parent
 
 _SCHEMA_FILES = [
     _ENGINE_DIR / "schema.sql",
