@@ -421,11 +421,14 @@ P5-Crystallize
 P6-Sim (scope TBD for v1)
   └── Rockwell-based PLC emulator via pylogix; custom library evaluation underway
 
-P7a-MinimalGateUI (v1, built alongside P0 JWT auth)
-  ├── Thin web page: Markdown artifact preview + critic verdicts + five gate outcome buttons
-  ├── JWT local auth server wired in (RT-01)
-  ├── OS desktop notification + optional SMTP email
-  └── Board-level SLA config (no system-level default)
+P7a-MinimalGateUI (v1, built alongside P0 JWT auth) ✓
+  ├── Thin web page: Markdown artifact preview + critic verdicts + five gate outcome buttons ✓
+  ├── JWT local auth server wired in (RT-01) ✓
+  ├── OS desktop notification (browser Notification API) ✓ + optional SMTP email ✓
+  │     (SMTP is env-gated and off by default — TALOS_SMTP_HOST unset — see spine.py's
+  │     _fire_review_email; no SMTP send has been exercised against a real mail server,
+  │     only its no-op/swallow-errors contract, per docs/p7a-verification.md §5)
+  └── Board-level SLA config (no system-level default) ✓
 
 P7b-FullCockpit (v1.x, sequential after P5/P6)
   └── Full Space Agent web cockpit: spaces, widgets, time-travel, Gantt, event stream

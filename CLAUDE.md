@@ -4,17 +4,18 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project status
 
-**Pre-alpha, P0–P3 core complete, RT-01 closed, SEC-01 resolved.** P3 DoD items #3 (multi-writer reducer commutativity) and #5 (milestone safety-significant gating) are deliberately deferred to P4 (ADR-029/ADR-030). TALOS is an agent harness for industrial and business operations. The engine port and web view have not been built. Runnable code:
+**Pre-alpha, P0–P3 core complete, RT-01 closed, SEC-01 resolved, P7a closed.** P3 DoD items #3 (multi-writer reducer commutativity) and #5 (milestone safety-significant gating) are deliberately deferred to P4 (ADR-029/ADR-030). TALOS is an agent harness for industrial and business operations. The engine port has not been built; the P7a minimal gate UI (below) is the only web view implemented so far — the full Space Agent cockpit (P7b) is still not built. Runnable code:
 - `talos/validators/` — capability-manifest validator (P0)
 - `talos/critics/` — deterministic gate critics and registry (P2)
 - `talos/graph/spine.py` — 4-node LangGraph spine with five-outcome gate (P1/P2)
 - `talos/worker.py` — asyncio dispatcher (`run_dispatcher`, `_worker_slot`), heartbeat, and dead-worker reclaim (P3a/b)
-- `talos/api.py` — FastAPI board API with full gate endpoint and JWT auth (P1/P2/RT-01)
+- `talos/api.py` — FastAPI board API with full gate endpoint, JWT auth, review-queue/SLA endpoints, and the P7a static UI mount (P1/P2/RT-01/P7a)
 - `talos/auth/` — local JWT auth: `issue_token`, `validate_token`, `add_user`, `verify_user`, CLI bootstrap (RT-01/ADR-036)
-- `engine/migrations/` — Alembic baseline (V0001) + users table (V0002); all future schema changes go here (ADR-034)
+- `engine/migrations/` — Alembic baseline (V0001) + users table (V0002) + FORCE RLS (V0003) + gate-UI columns (V0004); all future schema changes go here (ADR-034)
 - `talos/llm_providers/` — multi-provider LLM abstraction: `LLMProvider` protocol, `ModelRef`, driver registry, `anthropic`/`openai_compat` (aliases `ollama`) drivers (ADR-031)
 - `talos/nexus_client.py` — NEXUS MCP wiring over Streamable HTTP: SDK config builders plus real `tools/list`/`tools/call` for non-Anthropic providers (ADR-038/ADR-031)
-- `talos/tests/` — 99 tests passing (P1 spine, P2 gate, critic unit tests, P3a/b/c/d suites in `test_p3*.py`, PM scheduling, auth, SEC-01 regression, P3.5 harness, ADR-031 provider tests)
+- `web/gate/` — the P7a minimal gate-approval web UI: static HTML/vanilla JS/CSS (no build system), served by `talos/api.py` via `StaticFiles` at `/gate`. Login, polling review queue with SLA-overdue highlighting, task review page (Markdown deliverable preview + critic verdicts + all five ADR-011 gate outcomes)
+- `talos/tests/` — 116 tests passing (P1 spine, P2 gate, critic unit tests, P3a/b/c/d suites in `test_p3*.py`, PM scheduling, auth, SEC-01 regression, P3.5 harness, ADR-031 provider tests, P7a gate-UI + outcome-matrix tests)
 - `talos/experiments/` — Agent SDK prototype (ADR-029)
 
 ## Running tests

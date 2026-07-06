@@ -15,7 +15,15 @@ async function openReviewTask(taskId) {
   document.getElementById("screen-queue").classList.add("hidden");
   document.getElementById("screen-review").classList.remove("hidden");
   document.getElementById("review-outcome-result").textContent = "";
+  clearOutcomeFields();
   await loadReviewTask();
+}
+
+function clearOutcomeFields() {
+  for (const outcome of Object.keys(OUTCOME_RULES)) {
+    const input = document.getElementById(`outcome-input-${outcome}`);
+    if (input) input.value = "";
+  }
 }
 
 function backToQueue() {
