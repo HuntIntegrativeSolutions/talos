@@ -10,10 +10,12 @@ and get_gate_status's nexus_results_freshness field.
 from __future__ import annotations
 
 import uuid
+from unittest import mock
 
 import psycopg2.extras
 import pytest
 
+import talos.llm_providers.openai_compat as openai_compat
 from talos import nexus_cache
 
 _MANIFEST = {
@@ -165,6 +167,93 @@ def test_invalidate_expires_matching_rows(pg_setup, admin_conn):
     count = nexus_cache.invalidate(board_id, "find_docs_for_tag")
     assert count == 1
     assert nexus_cache.get_cached(board_id, "find_docs_for_tag", {"tag": "X"}) is None
+
+
+# ---------------------------------------------------------------------------
+# Driver-level integration: board_id must actually reach the cache through
+# the full base->anthropic->llm->spine->openai_compat thread, not just in
+# nexus_cache.py's own unit tests.
+# ---------------------------------------------------------------------------
+
+def _fake_response(payload):
+    resp = mock.Mock()
+    resp.raise_for_status = lambda: None
+    resp.json = lambda: payload
+    return resp
+
+
+_TOOL_CALL_ROUND = {
+    "choices": [{"message": {
+        "tool_calls": [{"id": "tc1", "function": {"name": "find_docs_for_tag", "arguments": '{"tag":"X"}'}}]
+    }}],
+    "usage": {"completion_tokens": 5},
+}
+_FINAL_ROUND = {
+    "choices": [{"message": {"content": "done"}}],
+    "usage": {"completion_tokens": 3},
+}
+
+
+class _FakeTool:
+    name = "find_docs_for_tag"
+    description = "d"
+    inputSchema = {"type": "object", "properties": {}}
+
+
+def _run_driver_twice(monkeypatch, board_id):
+    monkeypatch.setenv("TALOS_LLM_OPENAI_COMPATIBLE_API_KEY", "k")
+    driver = openai_compat.OpenAICompatibleDriver("openai_compatible", "http://x/v1", True)
+
+    posts = [
+        _fake_response(_TOOL_CALL_ROUND), _fake_response(_FINAL_ROUND),
+        _fake_response(_TOOL_CALL_ROUND), _fake_response(_FINAL_ROUND),
+    ]
+    monkeypatch.setattr(openai_compat.requests, "post", mock.Mock(side_effect=posts))
+
+    async def fake_list(url):
+        return [_FakeTool()]
+
+    tool_calls_seen = []
+
+    async def fake_call(url, name, args):
+        tool_calls_seen.append((name, args))
+        result = mock.Mock()
+        result.content = [mock.Mock(text="tool result text")]
+        return result
+
+    monkeypatch.setattr(openai_compat, "list_nexus_tools_raw", fake_list)
+    monkeypatch.setattr(openai_compat, "call_nexus_tool_raw", fake_call)
+
+    manifest = {"tools": [{"name": "find_docs_for_tag", "profile": "read"}]}
+    for _ in range(2):
+        driver.call(
+            "m", "prompt", None,
+            mcp_servers={"nexus": {"url": "http://nexus/mcp"}},
+            manifest=manifest, board_id=board_id,
+        )
+    return tool_calls_seen
+
+
+def test_driver_level_cache_hit_across_calls(pg_setup, admin_conn, monkeypatch):
+    board_id = f"drv-{uuid.uuid4().hex[:8]}"
+    _seed_board(admin_conn, board_id)
+
+    tool_calls_seen = _run_driver_twice(monkeypatch, board_id)
+
+    assert len(tool_calls_seen) == 1, (
+        f"expected 1 real NEXUS call (second served from cache), got {len(tool_calls_seen)}"
+    )
+
+
+def test_driver_level_ttl_zero_bypasses_cache(pg_setup, admin_conn, monkeypatch):
+    board_id = f"drv-{uuid.uuid4().hex[:8]}"
+    _seed_board(admin_conn, board_id, {"nexus_cache_ttl_seconds": 0})
+
+    tool_calls_seen = _run_driver_twice(monkeypatch, board_id)
+
+    assert len(tool_calls_seen) == 2, (
+        f"TTL=0 must bypass the cache entirely (always live), got {len(tool_calls_seen)} real calls"
+    )
 
 
 def test_invalidate_is_board_scoped(pg_setup, admin_conn):

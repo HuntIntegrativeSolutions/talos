@@ -64,7 +64,13 @@ class OpenAICompatibleDriver:
         from talos import nexus_cache
 
         cacheable = board_id is not None and manifest is not None and nexus_cache.is_cacheable(name, manifest)
-        if cacheable:
+        # TTL=0 means "always live, no read, no write" — resolve it up front so
+        # a miss doesn't read an unexpired row cached before the board's TTL
+        # was lowered to 0.
+        ttl = nexus_cache.get_ttl_seconds(board_id) if cacheable else 0
+        use_cache = cacheable and ttl > 0
+
+        if use_cache:
             cached = nexus_cache.get_cached(board_id, name, args)
             if cached is not None:
                 return cached
@@ -72,8 +78,7 @@ class OpenAICompatibleDriver:
         result = asyncio.run(call_nexus_tool_raw(nexus_url, name, args))
         content = _stringify_tool_result(result)
 
-        if cacheable:
-            ttl = nexus_cache.get_ttl_seconds(board_id)
+        if use_cache:
             nexus_cache.put_cached(board_id, name, args, content, ttl)
 
         return content
