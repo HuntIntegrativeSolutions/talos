@@ -166,6 +166,57 @@ def pg_setup(pg_container):
     """)
     cur.execute("ALTER TABLE milestone_escalation_log FORCE ROW LEVEL SECURITY")
 
+    # Apply V0007 content directly (rules + rule_ingestion_log — ADR-023 P4
+    # schema stub — and boards.client_identifiers — RT-06 enforcement input).
+    cur.execute("ALTER TABLE boards ADD COLUMN client_identifiers TEXT[] NOT NULL DEFAULT '{}'")
+    cur.execute("""
+        CREATE TABLE rules (
+            id                TEXT PRIMARY KEY,
+            board_id          TEXT NOT NULL REFERENCES boards(id),
+            rule_type         TEXT NOT NULL CHECK (rule_type IN ('factual', 'procedural', 'project_context')),
+            content           TEXT NOT NULL,
+            client_scope      TEXT NOT NULL DEFAULT 'client' CHECK (client_scope IN ('client', 'shared')),
+            source_task_id    TEXT REFERENCES tasks(id),
+            promotion_task_id TEXT REFERENCES tasks(id),
+            status            TEXT NOT NULL DEFAULT 'pending_review'
+                              CHECK (status IN ('pending_review', 'approved_client', 'approved_shared', 'rejected')),
+            created_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
+            updated_at        TIMESTAMPTZ NOT NULL DEFAULT now()
+        )
+    """)
+    cur.execute("ALTER TABLE rules ENABLE ROW LEVEL SECURITY")
+    cur.execute("""
+        CREATE POLICY rules_board_isolation ON rules
+            USING     (board_id = current_setting('app.board_id', true))
+            WITH CHECK (board_id = current_setting('app.board_id', true))
+    """)
+    cur.execute("""
+        CREATE POLICY rules_admin_bypass ON rules USING (current_user = 'talos_admin')
+    """)
+    cur.execute("ALTER TABLE rules FORCE ROW LEVEL SECURITY")
+
+    cur.execute("""
+        CREATE TABLE rule_ingestion_log (
+            id          BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+            board_id    TEXT NOT NULL REFERENCES boards(id),
+            dedup_key   TEXT NOT NULL,
+            rule_id     TEXT REFERENCES rules(id),
+            created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+            UNIQUE (board_id, dedup_key)
+        )
+    """)
+    cur.execute("ALTER TABLE rule_ingestion_log ENABLE ROW LEVEL SECURITY")
+    cur.execute("""
+        CREATE POLICY rule_ingestion_log_board_isolation ON rule_ingestion_log
+            USING     (board_id = current_setting('app.board_id', true))
+            WITH CHECK (board_id = current_setting('app.board_id', true))
+    """)
+    cur.execute("""
+        CREATE POLICY rule_ingestion_log_admin_bypass ON rule_ingestion_log
+            USING (current_user = 'talos_admin')
+    """)
+    cur.execute("ALTER TABLE rule_ingestion_log FORCE ROW LEVEL SECURITY")
+
     # Create talos_app as NOSUPERUSER so RLS applies to it.
     # The table owner (postgres) bypasses RLS; talos_app does not.
     cur.execute(

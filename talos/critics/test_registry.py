@@ -26,11 +26,11 @@ def isolated_registry():
     reg_module._registry.update(original)
 
 
-def _pass_critic(deliverable, nexus_client=None):
+def _pass_critic(deliverable, nexus_client=None, client_identifiers=None):
     return CriticResult(passed=True, reason="always passes")
 
 
-def _fail_critic(deliverable, nexus_client=None):
+def _fail_critic(deliverable, nexus_client=None, client_identifiers=None):
     return CriticResult(passed=False, reason="always fails")
 
 

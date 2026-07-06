@@ -38,6 +38,8 @@ async def _lifespan(app):
     # only ever runs the pre-interrupt portion of the spine (P4a).
     from talos.memory.chroma_store import register_ingest_hook
     register_ingest_hook()
+    from talos.rule_promotion import register_rule_promotion_hook
+    register_rule_promotion_hook()
     yield
 
 
@@ -203,6 +205,72 @@ def create_task(board_id: str, req: CreateTaskRequest) -> dict[str, Any]:
     finally:
         conn.close()
     return row
+
+
+class PromoteRuleRequest(BaseModel):
+    rule_type: str          # 'factual' | 'procedural' | 'project_context' (ADR-023)
+    content: str
+    source_task_id: str | None = None
+
+
+_RULE_TYPES = ("factual", "procedural", "project_context")
+
+
+@app.post("/boards/{board_id}/promote_rule", status_code=201)
+def promote_rule(
+    board_id: str, req: PromoteRuleRequest, claims: dict = Depends(require_human_session),
+) -> dict[str, Any]:
+    """
+    ADR-005: promotion to [shared] passes ONE gate, regardless of artifact
+    type. This endpoint does NOT promote anything immediately — it creates a
+    `rules` row (client_scope='client', status='pending_review') and a
+    promotion task that flows through the identical gate/critic/human-approval
+    pipeline as any other task (talos.graph.spine.deliverable_node builds its
+    deliverable from the rule content; talos.critics.no_client_identifiers_in_shared
+    (RT-06) is required+non-waivable for it). Only a subsequent `approve`
+    outcome flips client_scope to 'shared' (talos.rule_promotion).
+    """
+    import json
+    import uuid
+
+    if req.rule_type not in _RULE_TYPES:
+        raise HTTPException(
+            status_code=422,
+            detail=f"rule_type must be one of {_RULE_TYPES}",
+        )
+
+    rule_id = f"rule-{uuid.uuid4().hex[:12]}"
+    promotion_task_id = f"promote-{rule_id}"
+
+    conn = get_conn()
+    try:
+        with board_scope(conn, board_id) as cur:
+            # Task must exist before `rules.promotion_task_id` can reference it (FK).
+            origin_body = json.dumps({
+                "talos_origin": "rule_promotion",
+                "rule_id": rule_id,
+                "rule_type": req.rule_type,
+                "source_task_id": req.source_task_id,
+            })
+            cur.execute(
+                """
+                INSERT INTO tasks (id, board_id, title, body, status, priority)
+                VALUES (%s, %s, %s, %s, 'ready', 5)
+                """,
+                (promotion_task_id, board_id, f"Promote rule {rule_id} to [shared]", origin_body),
+            )
+            cur.execute(
+                """
+                INSERT INTO rules (id, board_id, rule_type, content, client_scope,
+                                    source_task_id, promotion_task_id, status)
+                VALUES (%s, %s, %s, %s, 'client', %s, %s, 'pending_review')
+                """,
+                (rule_id, board_id, req.rule_type, req.content, req.source_task_id, promotion_task_id),
+            )
+    finally:
+        conn.close()
+
+    return {"rule_id": rule_id, "promotion_task_id": promotion_task_id, "status": "pending_review"}
 
 
 @app.get("/boards/{board_id}/tasks/{task_id}")

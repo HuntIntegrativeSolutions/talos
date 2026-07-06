@@ -429,6 +429,44 @@ def _fire_review_email(board_id: str, task_id: str) -> None:
         )
 
 
+def _build_rule_promotion_deliverable(board_id: str, origin: dict) -> dict:
+    """
+    P4b (ADR-005/RT-06): build a promotion task's deliverable directly from its
+    `rules` table row, instead of the default NEXUS-derived scaffold. The
+    synthetic citations entry keeps citations_resolvable passing without any
+    change to that critic.
+    """
+    conn = get_conn()
+    try:
+        with board_scope(conn, board_id) as cur:
+            cur.execute(
+                "SELECT content, rule_type FROM rules WHERE id = %s AND board_id = %s",
+                (origin["rule_id"], board_id),
+            )
+            rule_row = cur.fetchone()
+    finally:
+        conn.close()
+
+    content = rule_row["content"] if rule_row else ""
+    rule_type = rule_row["rule_type"] if rule_row else None
+    return {
+        "summary": content,
+        "rule_type": rule_type,
+        "citations": [{"finding_id": origin.get("source_task_id") or origin["rule_id"], "status": "confirmed"}],
+    }
+
+
+def _fetch_board_client_identifiers(board_id: str) -> list[str]:
+    conn = get_conn()
+    try:
+        with board_scope(conn, board_id) as cur:
+            cur.execute("SELECT client_identifiers FROM boards WHERE id = %s", (board_id,))
+            row = cur.fetchone()
+    finally:
+        conn.close()
+    return (row["client_identifiers"] if row else []) or []
+
+
 def deliverable_node(state: SpineState) -> dict:
     """
     Build (or accept an edited) deliverable, run all registered critics via the
@@ -441,9 +479,16 @@ def deliverable_node(state: SpineState) -> dict:
     ctx = SpanContext(board_id=state["board_id"], task_id=state["task_id"], run_id=state["run_id"])
     emit_span(ctx, "spine.node.deliverable_node.entry")
 
+    from talos.task_origin import parse_origin
+    origin = parse_origin(state.get("task_body"))
+
     is_edit = state.get("edited_deliverable") is not None
+    is_rule_promotion = bool(origin) and origin.get("talos_origin") == "rule_promotion"
+
     if is_edit:
         deliverable = state["edited_deliverable"]
+    elif is_rule_promotion:
+        deliverable = _build_rule_promotion_deliverable(state["board_id"], origin)
     else:
         deliverable = {
             "citations": [
@@ -455,7 +500,11 @@ def deliverable_node(state: SpineState) -> dict:
             "summary": f"Tag context retrieved: {state['nexus_result']}",
         }
 
-    verdicts = run_all_critics(deliverable, nexus_client=None)
+    # P4b/RT-06: only rule-promotion deliverables get a non-None client_identifiers
+    # list — every other deliverable (the overwhelming majority) makes
+    # no_client_identifiers_in_shared a no-op pass (see its docstring's scope guard).
+    client_identifiers = _fetch_board_client_identifiers(state["board_id"]) if is_rule_promotion else None
+    verdicts = run_all_critics(deliverable, nexus_client=None, client_identifiers=client_identifiers)
 
     # Emit one critic span per verdict.
     for v in verdicts:
@@ -468,8 +517,6 @@ def deliverable_node(state: SpineState) -> dict:
     # RT-06) are NEVER downgraded — CR-26's human-approval-still-mandatory invariant
     # is untouched. Only the persisted rows are downgraded; `verdicts` (returned in
     # state["critic_results"] for audit) keeps each critic's original required-ness.
-    from talos.task_origin import parse_origin
-    origin = parse_origin(state.get("task_body"))
     if origin and origin.get("talos_origin") == "milestone_remediation":
         persisted_verdicts = [
             {**v, "required": False} if not v["safety_class"] else v

@@ -17,7 +17,7 @@ class CriticResult:
     waivable: bool = True
 
 
-def citations_resolvable(deliverable: dict, nexus_client=None) -> CriticResult:
+def citations_resolvable(deliverable: dict, nexus_client=None, client_identifiers=None) -> CriticResult:
     """
     Pass iff every deliverable["citations"] entry has status == 'confirmed'.
 

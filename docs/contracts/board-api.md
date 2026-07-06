@@ -87,7 +87,23 @@ error-escalation path rather than `deliverable_node`, since no deliverable was e
 added additively in P7a, `tasks.deliverable` per `V0004_gate_ui`), plus a top-level
 `nexus_results_freshness: {tool_name, fetched_at, nexus_cache_age_seconds}[]` array *(added
 additively in P4a, ADR-035)* — every non-expired `nexus_cache` row for the board (board-wide,
-not scoped to this task's own run, since `nexus_cache` carries no `task_id` column).
+not scoped to this task's own run, since `nexus_cache` carries no `task_id` column), plus a
+top-level `milestone_escalation_origin` field *(added additively in P4b, ADR-016 action item #7)* —
+the `{talos_origin: "milestone_issue"|"milestone_remediation", milestone_id, severity}` marker
+parsed from `tasks.body` when this task was auto-created by `talos.pm_escalator`; `null` for
+ordinary tasks and for promotion tasks (whose origin marker uses `talos_origin: "rule_promotion"`,
+not surfaced under this field).
+
+**`promoteRule(board_id, {rule_type, content, source_task_id?})` → {rule_id, promotion_task_id,
+status}** *(added additively in P4b, ADR-005/ADR-023)* — `POST /boards/{board_id}/promote_rule`.
+Creates a `rules` row (`client_scope='client'`, `status='pending_review'`) and a promotion task
+that flows through the identical gate/critic/human-approval pipeline as any other task — no
+parallel approval path (ADR-005: one gate for everything). `rule_type` ∈
+`factual|procedural|project_context` (ADR-023). Only a subsequent `approve` gate outcome on the
+promotion task flips `rules.client_scope` to `'shared'`; the required, non-waivable
+`no_client_identifiers_in_shared` critic (RT-06) runs against the promotion deliverable and a
+failing verdict cannot be waived (only escalated, which does not itself flip scope). JWT-guarded,
+same as the other write endpoints in this contract.
 
 **`invalidateNexusCache(board_id, tool_name)`** *(added additively in P4a, ADR-035)* —
 `POST /boards/{board_id}/nexus_cache/invalidate?tool_name=...`. Expires matching `nexus_cache`

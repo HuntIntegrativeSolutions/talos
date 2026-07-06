@@ -1,7 +1,7 @@
 from talos.critics.citations_resolvable import CriticResult
 
 
-def no_live_write_in_deliverable(deliverable: dict, nexus_client=None) -> CriticResult:
+def no_live_write_in_deliverable(deliverable: dict, nexus_client=None, client_identifiers=None) -> CriticResult:
     """
     Safety critic (safety_class=True, waivable=False).
     Blocks any deliverable that contains a 'live_write' key set to True.

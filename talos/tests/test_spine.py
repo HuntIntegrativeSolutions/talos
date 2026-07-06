@@ -99,8 +99,10 @@ def test_spine_happy_path(pg_setup, admin_conn, test_graph, human_jwt):
     assert task["approved_at"] is not None
 
     gate_rows = _count_rows(admin_conn, "task_gate_results", task_id)
-    # P2 registry runs 2 critics (citations_resolvable + no_live_write_in_deliverable).
-    assert gate_rows == 2, f"expected 2 task_gate_results rows (one per critic), got {gate_rows}"
+    # Registry runs 3 critics (citations_resolvable + no_live_write_in_deliverable +
+    # no_client_identifiers_in_shared, added P4b/RT-06 — a no-op pass for this
+    # non-promotion deliverable since client_identifiers is None).
+    assert gate_rows == 3, f"expected 3 task_gate_results rows (one per critic), got {gate_rows}"
 
     event_rows = _count_rows(admin_conn, "task_events", task_id, kind="gate_outcome")
     assert event_rows == 1, f"expected 1 gate_outcome event, got {event_rows}"

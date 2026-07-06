@@ -39,10 +39,18 @@ def get(name: str) -> CriticSpec | None:
     return _registry.get(name)
 
 
-def run_all(deliverable: dict, nexus_client=None) -> list[dict]:
+def run_all(deliverable: dict, nexus_client=None, client_identifiers: list[str] | None = None) -> list[dict]:
+    """
+    client_identifiers (P4b/RT-06): forwarded to every critic. Only
+    no_client_identifiers_in_shared acts on it — the other critics accept and
+    ignore the kwarg (additive signature change, zero behavior change). Pass
+    a non-None list only for rule-promotion deliverables (see
+    talos.graph.spine.deliverable_node) — RT-06 treats None as "not a
+    promotion context" and no-ops.
+    """
     results = []
     for spec in _registry.values():
-        result = spec.fn(deliverable, nexus_client=nexus_client)
+        result = spec.fn(deliverable, nexus_client=nexus_client, client_identifiers=client_identifiers)
         verdict = "pass" if result.passed else "fail"
         results.append({
             "name": spec.name,
@@ -61,6 +69,7 @@ def run_all(deliverable: dict, nexus_client=None) -> list[dict]:
 # ---------------------------------------------------------------------------
 
 from talos.critics.citations_resolvable import citations_resolvable  # noqa: E402
+from talos.critics.no_client_identifiers_in_shared import no_client_identifiers_in_shared  # noqa: E402
 from talos.critics.no_live_write import no_live_write_in_deliverable  # noqa: E402
 
 register(CriticSpec(
@@ -74,6 +83,14 @@ register(CriticSpec(
 register(CriticSpec(
     name="no_live_write_in_deliverable",
     fn=no_live_write_in_deliverable,
+    required=True,
+    safety_class=True,
+    waivable=False,
+))
+
+register(CriticSpec(
+    name="no_client_identifiers_in_shared",
+    fn=no_client_identifiers_in_shared,
     required=True,
     safety_class=True,
     waivable=False,
