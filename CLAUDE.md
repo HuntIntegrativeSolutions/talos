@@ -21,7 +21,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - `talos/nexus_cache.py` — board-scoped NEXUS read cache: TTL from `boards.model_config`, params-hash keying, cacheable for read + write:offline_artifact tool profiles; wired into the `openai_compat` tool loop only (the Anthropic Agent SDK's MCP dispatch is opaque and uncached) (ADR-035/P4a)
 - `talos/memory/` — Chroma documentation-chunk store: heading-based chunking, one collection per board_id (adapter-enforced isolation, not RLS), local-only embeddings by default, ingested on gate approval; `query()` wired into the spine's read fan-out (P4a/P4b)
 - `web/gate/` — the P7a minimal gate-approval web UI: static HTML/vanilla JS/CSS (no build system), served by `talos/api.py` via `StaticFiles` at `/gate`. Login, polling review queue with SLA-overdue highlighting, task review page (Markdown deliverable preview + critic verdicts + NEXUS cache staleness/re-fetch + all five ADR-011 gate outcomes)
-- `talos/tests/` — 184 tests passing (P1 spine, P2 gate, critic unit tests, P3a/b/c/d suites in `test_p3*.py`, PM scheduling, auth, SEC-01 regression, P3.5 harness, ADR-031 provider tests, P7a gate-UI + outcome-matrix tests, P4a migration/nexus-cache/chroma-store tests, P4b reducer/fan-out + milestone-escalator + promote_rule/RT-06 tests)
+- `talos/tests/` — 185 tests passing (P1 spine, P2 gate, critic unit tests, P3a/b/c/d suites in `test_p3*.py`, PM scheduling, auth, SEC-01 regression, P3.5 harness, ADR-031 provider tests, P7a gate-UI + outcome-matrix tests, P4a migration/nexus-cache/chroma-store tests, P4b reducer/fan-out + milestone-escalator + promote_rule/RT-06 tests)
 - `talos/experiments/` — Agent SDK prototype (ADR-029)
 
 ## Running tests

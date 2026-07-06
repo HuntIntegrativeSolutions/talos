@@ -233,6 +233,87 @@ def test_issue_task_still_requires_full_gate_when_eventually_run(pg_setup, admin
     assert rows["no_live_write_in_deliverable"] is True
 
 
+def test_shortened_gate_actually_tolerates_a_failing_non_safety_critic(
+    pg_setup, admin_conn, test_graph, human_jwt, monkeypatch,
+):
+    """
+    Discriminating test: the stub deliverable's citations are 'confirmed' by
+    default, so citations_resolvable passes regardless of the downgrade —
+    proving only that `required=False` got persisted, not that the downgrade
+    ever changes a gate decision. Here we force citations_resolvable to
+    actually FAIL (via an edit injecting a 'proposed' citation) on a
+    remediation-origin task, and contrast with the identical failing
+    deliverable on a plain (non-remediation) task — the plain task must still
+    be blocked, proving the shortened gate is what's making the difference.
+    """
+    monkeypatch.setenv("TALOS_NEXUS_STUB", "1")
+    from fastapi.testclient import TestClient
+    from talos.api import app as api_app
+
+    board_id = _uid("esc-board")
+    milestone_id = _uid("milestone")
+    dep_task_id = _uid("dep-task")
+    _seed_board(admin_conn, board_id)
+    _seed_milestone_at_risk(admin_conn, board_id, milestone_id, dep_task_id)
+
+    results = process_pending_escalations(board_id)
+    remediation_task_id = results[0]["created_task_id"]
+
+    plain_task_id = _uid("plain-task")
+    with admin_conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO tasks (id, board_id, title, status) VALUES (%s, %s, %s, 'ready')",
+            (plain_task_id, board_id, "plain task"),
+        )
+    admin_conn.commit()
+
+    claim_and_run(board_id, remediation_task_id, graph=test_graph)
+    claim_and_run(board_id, plain_task_id, graph=test_graph)
+
+    client = TestClient(api_app)
+    failing_deliverable = {
+        "citations": [{"finding_id": "X", "status": "proposed"}],
+        "summary": "forced-fail",
+    }
+
+    for tid in (remediation_task_id, plain_task_id):
+        resp = client.post(
+            f"/boards/{board_id}/tasks/{tid}/gate",
+            json={"outcome": "edit", "new_deliverable": failing_deliverable},
+            headers={"X-Human-Session": human_jwt},
+        )
+        assert resp.status_code == 200, resp.text
+
+    with admin_conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        cur.execute(
+            "SELECT critic_name, required, verdict FROM task_gate_results "
+            "WHERE task_id = %s AND critic_name = 'citations_resolvable' "
+            "ORDER BY created_at DESC LIMIT 1",
+            (remediation_task_id,),
+        )
+        remediation_critic_row = dict(cur.fetchone())
+        cur.execute(
+            "SELECT all_required_pass FROM v_gate_status WHERE task_id = %s",
+            (remediation_task_id,),
+        )
+        remediation_gate = dict(cur.fetchone())
+        cur.execute(
+            "SELECT all_required_pass FROM v_gate_status WHERE task_id = %s",
+            (plain_task_id,),
+        )
+        plain_gate = dict(cur.fetchone())
+
+    assert remediation_critic_row["verdict"] == "fail"
+    assert remediation_critic_row["required"] is False
+    assert remediation_gate["all_required_pass"] is True, (
+        "remediation-origin task's shortened gate must tolerate the failing non-safety critic"
+    )
+    assert plain_gate["all_required_pass"] is False, (
+        "an ordinary task must still be blocked by the identical failing required critic "
+        "— proves the downgrade, not something else, is what let the remediation task through"
+    )
+
+
 # ---------------------------------------------------------------------------
 # Hook firing
 # ---------------------------------------------------------------------------
