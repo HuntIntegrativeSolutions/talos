@@ -405,11 +405,13 @@ P3.5-Harness (prerequisite before P4) ✓ closed 2026-07-05
         - budget hard-cap → escalate not crash ✓
 
 P4-Memory (Postgres + Chroma in v1; Neo4j + Redis deferred)
-  ├── Chroma: documentation chunk embeddings (configurable local/cloud embedding model)
-  ├── Board-scoped NEXUS read cache in Postgres (ADR-035; TTL, staleness at gate)
-  ├── Commutative/associative reducers for parallel Postgres+Chroma read fan-out (DoD #3)
-  ├── Lightweight /promote_rule endpoint (ADR-005)
-  ├── Deferred P3 DoD #5: milestone safety-significant gating (HIGH-severity auto-stage)
+  ├── [P4a ✓] Chroma: documentation chunk embeddings (local embedding model by default,
+  │   configurable; storage + indexing only, retrieval wiring is P5's job)
+  ├── [P4a ✓] Board-scoped NEXUS read cache in Postgres (ADR-035; TTL, staleness at gate,
+  │   openai_compat path only — the Anthropic Agent SDK's MCP dispatch is opaque/uncached)
+  ├── [P4b] Commutative/associative reducers for parallel Postgres+Chroma read fan-out (DoD #3)
+  ├── [P4b] Lightweight /promote_rule endpoint (ADR-005) + RT-06
+  ├── [P4b] Deferred P3 DoD #5: milestone safety-significant gating (HIGH-severity auto-stage)
   └── [Post-v1] Neo4j episodic graph + Redis hot cache
 
 P5-Crystallize

@@ -4,18 +4,20 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project status
 
-**Pre-alpha, P0–P3 core complete, RT-01 closed, SEC-01 resolved, P7a closed.** P3 DoD items #3 (multi-writer reducer commutativity) and #5 (milestone safety-significant gating) are deliberately deferred to P4 (ADR-029/ADR-030). TALOS is an agent harness for industrial and business operations. The engine port has not been built; the P7a minimal gate UI (below) is the only web view implemented so far — the full Space Agent cockpit (P7b) is still not built. Runnable code:
+**Pre-alpha, P0–P3 core complete, RT-01 closed, SEC-01 resolved, P7a closed, P4a closed.** P3 DoD items #3 (multi-writer reducer commutativity) and #5 (milestone safety-significant gating), plus /promote_rule and RT-06, are deliberately deferred to P4b (ADR-029/ADR-030). TALOS is an agent harness for industrial and business operations. The engine port has not been built; the P7a minimal gate UI (below) is the only web view implemented so far — the full Space Agent cockpit (P7b) is still not built. Runnable code:
 - `talos/validators/` — capability-manifest validator (P0)
 - `talos/critics/` — deterministic gate critics and registry (P2)
 - `talos/graph/spine.py` — 4-node LangGraph spine with five-outcome gate (P1/P2)
 - `talos/worker.py` — asyncio dispatcher (`run_dispatcher`, `_worker_slot`), heartbeat, and dead-worker reclaim (P3a/b)
-- `talos/api.py` — FastAPI board API with full gate endpoint, JWT auth, review-queue/SLA endpoints, and the P7a static UI mount (P1/P2/RT-01/P7a)
+- `talos/api.py` — FastAPI board API with full gate endpoint, JWT auth, review-queue/SLA endpoints, NEXUS cache staleness + invalidate endpoint, and the P7a static UI mount (P1/P2/RT-01/P7a/P4a)
 - `talos/auth/` — local JWT auth: `issue_token`, `validate_token`, `add_user`, `verify_user`, CLI bootstrap (RT-01/ADR-036)
-- `engine/migrations/` — Alembic baseline (V0001) + users table (V0002) + FORCE RLS (V0003) + gate-UI columns (V0004); all future schema changes go here (ADR-034)
+- `engine/migrations/` — Alembic baseline (V0001) + users table (V0002) + FORCE RLS (V0003) + gate-UI columns (V0004) + NEXUS read cache (V0005); all future schema changes go here (ADR-034)
 - `talos/llm_providers/` — multi-provider LLM abstraction: `LLMProvider` protocol, `ModelRef`, driver registry, `anthropic`/`openai_compat` (aliases `ollama`) drivers (ADR-031)
 - `talos/nexus_client.py` — NEXUS MCP wiring over Streamable HTTP: SDK config builders plus real `tools/list`/`tools/call` for non-Anthropic providers (ADR-038/ADR-031)
-- `web/gate/` — the P7a minimal gate-approval web UI: static HTML/vanilla JS/CSS (no build system), served by `talos/api.py` via `StaticFiles` at `/gate`. Login, polling review queue with SLA-overdue highlighting, task review page (Markdown deliverable preview + critic verdicts + all five ADR-011 gate outcomes)
-- `talos/tests/` — 116 tests passing (P1 spine, P2 gate, critic unit tests, P3a/b/c/d suites in `test_p3*.py`, PM scheduling, auth, SEC-01 regression, P3.5 harness, ADR-031 provider tests, P7a gate-UI + outcome-matrix tests)
+- `talos/nexus_cache.py` — board-scoped NEXUS read cache: TTL from `boards.model_config`, params-hash keying, cacheable for read + write:offline_artifact tool profiles; wired into the `openai_compat` tool loop only (the Anthropic Agent SDK's MCP dispatch is opaque and uncached) (ADR-035/P4a)
+- `talos/memory/` — Chroma documentation-chunk store: heading-based chunking, one collection per board_id (adapter-enforced isolation, not RLS), local-only embeddings by default, ingested on gate approval; `query()` exposed for P5 to consume, not yet wired into the spine (P4a)
+- `web/gate/` — the P7a minimal gate-approval web UI: static HTML/vanilla JS/CSS (no build system), served by `talos/api.py` via `StaticFiles` at `/gate`. Login, polling review queue with SLA-overdue highlighting, task review page (Markdown deliverable preview + critic verdicts + NEXUS cache staleness/re-fetch + all five ADR-011 gate outcomes)
+- `talos/tests/` — 149 tests passing (P1 spine, P2 gate, critic unit tests, P3a/b/c/d suites in `test_p3*.py`, PM scheduling, auth, SEC-01 regression, P3.5 harness, ADR-031 provider tests, P7a gate-UI + outcome-matrix tests, P4a migration/nexus-cache/chroma-store tests)
 - `talos/experiments/` — Agent SDK prototype (ADR-029)
 
 ## Running tests
