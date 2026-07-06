@@ -17,6 +17,21 @@ implementation task, run from this development sandbox on 2026-07-05.
 
 ## (a) Claude path still works
 
+**VERIFIED 2026-07-05 — via Claude Code OAuth credentials, no API key.** The
+operator has no Anthropic API key; the Agent SDK resolves the local Claude Code
+OAuth credential instead (the mechanism ADR-029 validated). Live driver-level
+check run on the dev workstation:
+
+```
+call_model(ModelRef('anthropic','claude-haiku-4-5-20251001'),
+           'Reply with exactly the word: VERIFIED')
+→ text='VERIFIED', session=7914829c-…, tokens=46
+```
+
+This exercises the real `AnthropicDriver.call()` → Agent SDK → live API path
+end-to-end (driver-level, not a full spine run; P3.5 already proved the full
+spine live with Claude). Original sandbox status kept below for provenance.
+
 **Pending — no `ANTHROPIC_API_KEY` available in this sandbox.** The
 `AnthropicDriver.call()` path (`talos/llm_providers/anthropic.py`) is the same
 `_async_call` logic P3.5 already proved live (per `docs/p35-harness-results.md`
@@ -48,7 +63,25 @@ with function-calling support) is available:
    accidental fallthrough to the anthropic driver would fail loudly, not
    silently succeed).
 
-## (c) Cross-provider fallback on a real forced primary failure
+## (c) Fallback on a real forced primary failure
+
+**PARTIALLY VERIFIED 2026-07-05 — same-provider fallback proven live; cross-provider
+leg still pending Ollama hardware.** Live check on the dev workstation via OAuth:
+
+```
+_call_with_fallback(ModelRef('anthropic','nonexistent-model-force-fail'),
+                    ModelRef('anthropic','claude-haiku-4-5-20251001'),
+                    prompt='Reply with exactly the word: FALLBACK-OK',
+                    resume=None, state={})
+→ logged "model anthropic/nonexistent-model-force-fail failed: …"
+→ text='FALLBACK-OK', tokens=50
+```
+
+A genuine `ModelCallError` from the real SDK (invalid model name) triggered the
+real fallback path, which succeeded live. What remains pending is only the
+*cross-provider* variant (anthropic → ollama), blocked on the same hardware gap
+as (b). Note: the SDK's error string for an invalid model reads
+"returned an error result: success" — cosmetic quirk, worth an upstream glance.
 
 **Pending — same credential/hardware gap as (a) and (b).** A *real* forced
 failure (as opposed to the mocked `FailingDriver` in
