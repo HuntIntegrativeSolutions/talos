@@ -170,3 +170,11 @@ infer from dependencies alone. The override is a first-class field with audit tr
       HIGH → auto-create issue + stage for human review;
       MEDIUM → auto-dispatch remediation task with shortened gate (human approval still required — CR-26);
       LOW → log to event stream only.
+
+**Implemented (P4b):** `talos/pm_escalator.py::process_pending_escalations` polls the
+`milestone_risk` `task_events` rows the trigger already logs and completes the HIGH/MEDIUM
+mapping above — HIGH creates an issue-task staged in `backlog` (never auto-dispatched); MEDIUM
+creates a remediation-task in `ready` whose non-safety critics `deliverable_node` downgrades to
+advisory (human approval still mandatory, CR-26 unchanged). Tracked via the new
+`milestone_escalation_log` table (`V0006`), claimed atomically before task creation. LOW is not
+applicable — the trigger only fires on transitions to `at_risk`/`missed`, never a third tier.

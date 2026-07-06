@@ -409,9 +409,15 @@ P4-Memory (Postgres + Chroma in v1; Neo4j + Redis deferred)
   │   configurable; storage + indexing only, retrieval wiring is P5's job)
   ├── [P4a ✓] Board-scoped NEXUS read cache in Postgres (ADR-035; TTL, staleness at gate,
   │   openai_compat path only — the Anthropic Agent SDK's MCP dispatch is opaque/uncached)
-  ├── [P4b] Commutative/associative reducers for parallel Postgres+Chroma read fan-out (DoD #3)
-  ├── [P4b] Lightweight /promote_rule endpoint (ADR-005) + RT-06
-  ├── [P4b] Deferred P3 DoD #5: milestone safety-significant gating (HIGH-severity auto-stage)
+  ├── [P4b ✓] Commutative/associative reducers for parallel Postgres+Chroma read fan-out
+  │   (DoD #3 / RT-21): 3-branch Send fan-out (read_node + read_branch_nexus_secondary +
+  │   read_branch_chroma) merged via talos.graph.reducers (budget, sdk_session_ids,
+  │   context_branches)
+  ├── [P4b ✓] Lightweight /promote_rule endpoint (ADR-005) + RT-06: promotion reuses the
+  │   normal task/gate pipeline; no_client_identifiers_in_shared is required+non-waivable
+  ├── [P4b ✓] Deferred P3 DoD #5: milestone safety-significant gating (ADR-016 action
+  │   item #7): HIGH=missed auto-stages an issue-task (never auto-dispatched); MEDIUM=at_risk
+  │   auto-dispatches a remediation task with a shortened (advisory non-safety-critic) gate
   └── [Post-v1] Neo4j episodic graph + Redis hot cache
 
 P5-Crystallize

@@ -59,3 +59,13 @@ judgment belongs. Storage-layer isolation comes from `group_id` multi-tenancy
       types.
 3. [ ] Rename the Agent-Zero "verified solutions" area to CRYSTALLIZED; auto-extraction populates
       FRAGMENTS only.
+
+**Implemented (P4b), for the `rules` artifact type only:** `POST /boards/{board_id}/promote_rule`
+creates a `rules` row (`client_scope='client'`) and a promotion task that flows through the
+identical gate/critic/human-approval pipeline as any other task — the one promotion gate this ADR
+calls for, not a parallel path. `talos/critics/no_client_identifiers_in_shared.py` (RT-06) is the
+deterministic sanitization enforcer this ADR's "strip the instance" step lacked; it is required and
+non-waivable, so a leak can only be resolved by a second human reviewer (escalate), never a waiver,
+and escalate itself does not flip scope. Graph-node/skill/strategy-path promotion (action items #1
+and #3) remain unimplemented — this only closes the `rules` (project-context/factual/procedural,
+ADR-023) artifact type.
