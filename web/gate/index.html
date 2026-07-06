@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TALOS — Gate</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header>
+  <h1>TALOS Gate</h1>
+  <div id="board-selector">
+    <label for="board-id-input">Board:</label>
+    <input type="text" id="board-id-input" placeholder="board id" value="default">
+    <button id="logout-btn" onclick="logout(); showLoginScreen();">Log out</button>
+  </div>
+</header>
+
+<main>
+
+  <!-- Login screen -->
+  <section id="screen-login">
+    <h2>Log in</h2>
+    <form id="login-form">
+      <label for="login-username">Username</label>
+      <input type="text" id="login-username" autocomplete="username" required>
+      <label for="login-password">Password</label>
+      <input type="password" id="login-password" autocomplete="current-password" required>
+      <button type="submit">Log in</button>
+      <p id="login-error" class="error"></p>
+    </form>
+  </section>
+
+  <!-- Review queue screen -->
+  <section id="screen-queue" class="hidden">
+    <h2>Review queue</h2>
+    <table>
+      <thead>
+        <tr><th>Task</th><th>Assignee</th><th>Time in review</th><th></th></tr>
+      </thead>
+      <tbody id="queue-rows"></tbody>
+    </table>
+  </section>
+
+  <!-- Task review screen -->
+  <section id="screen-review" class="hidden">
+    <button onclick="backToQueue()">&larr; Back to queue</button>
+    <h2 id="review-title"></h2>
+
+    <div class="deliverable-header">
+      <h3>Deliverable</h3>
+      <button id="raw-toggle-btn" onclick="toggleRawDeliverable()">Show raw</button>
+    </div>
+    <div id="deliverable-panel" class="deliverable-panel"></div>
+    <pre id="deliverable-raw" class="deliverable-raw hidden"></pre>
+
+    <h3>Critic verdicts</h3>
+    <table>
+      <thead>
+        <tr><th>Critic</th><th>Verdict</th><th>Required</th><th>Waivable</th><th>Safety</th></tr>
+      </thead>
+      <tbody id="critics-rows"></tbody>
+    </table>
+
+    <h3>Gate outcome</h3>
+    <div class="outcomes">
+
+      <div class="outcome-row">
+        <button id="outcome-btn-approve">Approve</button>
+        <span id="outcome-hint-approve" class="hint"></span>
+      </div>
+
+      <div class="outcome-row">
+        <button id="outcome-btn-reject">Reject</button>
+        <div id="outcome-field-reject" class="outcome-field hidden">
+          <input type="text" id="outcome-input-reject" placeholder="reason (required)">
+        </div>
+        <span id="outcome-hint-reject" class="hint"></span>
+      </div>
+
+      <div class="outcome-row">
+        <button id="outcome-btn-waive">Waive</button>
+        <div id="outcome-field-waive" class="outcome-field hidden">
+          <input type="text" id="outcome-input-waive" placeholder="justification (required)">
+        </div>
+        <span id="outcome-hint-waive" class="hint"></span>
+      </div>
+
+      <div class="outcome-row">
+        <button id="outcome-btn-edit">Edit</button>
+        <div id="outcome-field-edit" class="outcome-field hidden">
+          <textarea id="outcome-input-edit" placeholder='new deliverable JSON (required), e.g. {"summary": "...", "citations": []}'></textarea>
+        </div>
+        <span id="outcome-hint-edit" class="hint"></span>
+      </div>
+
+      <div class="outcome-row">
+        <button id="outcome-btn-escalate">Escalate</button>
+        <div id="outcome-field-escalate" class="outcome-field hidden">
+          <input type="text" id="outcome-input-escalate" placeholder="justification (required)">
+        </div>
+        <span id="outcome-hint-escalate" class="hint"></span>
+      </div>
+
+    </div>
+    <p id="review-outcome-result"></p>
+  </section>
+
+</main>
+
+<script src="vendor/marked.min.js"></script>
+<script src="vendor/purify.min.js"></script>
+<script src="outcome-rules.js"></script>
+<script src="api.js"></script>
+<script src="login.js"></script>
+<script src="queue.js"></script>
+<script src="review.js"></script>
+<script>
+  setSessionExpiredHandler(showLoginScreen);
+  initLoginScreen();
+  showLoginScreen();
+</script>
+
+</body>
+</html>

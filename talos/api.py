@@ -462,3 +462,16 @@ def submit_gate_outcome(
     )
 
     return {"status": "ok", "outcome": req.outcome, "approved_by": approved_by}
+
+
+# ---------------------------------------------------------------------------
+# P7a minimal gate UI — static file mount (ADR-002: view never touches Postgres
+# directly, only this board-api). Mounted at /gate, not /, so it never shadows
+# any API route above.
+# ---------------------------------------------------------------------------
+
+import pathlib as _pathlib
+from fastapi.staticfiles import StaticFiles as _StaticFiles
+
+_WEB_DIR = _pathlib.Path(__file__).resolve().parent.parent / "web" / "gate"
+app.mount("/gate", _StaticFiles(directory=str(_WEB_DIR), html=True), name="gate-ui")
