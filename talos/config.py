@@ -1,7 +1,7 @@
 """
-TALOS model configuration cascade (ADR-018).
+TALOS model configuration cascade (ADR-018; provider dimension added ADR-031).
 
-resolve_model(step, board, task) -> (primary: str, fallback: str)
+resolve_model(step, board, task) -> (primary: ModelRef, fallback: ModelRef)
 
 Cascade priority (highest to lowest):
   task.model_override TEXT  -- all-step override for one task
@@ -11,6 +11,19 @@ Cascade priority (highest to lowest):
 
 The 6 Strategy Ladder steps: triage, research, plan, gate, execute, crystallize.
 Model strings are opaque; TALOS passes them through to the LLM client unchanged.
+
+Provider keys (ADR-031): each slot may set "{step}_primary_provider" and
+"{step}_fallback_provider" (flat keys, matching this module's existing
+"{step}_primary"/"{step}_fallback" convention -- NOT the nested [models.<step>]
+table shown as an illustration in ADR-031's text, which does not match how this
+module actually reads config; see ADR-018's own pre-existing, documented
+discrepancy for precedent). Absent provider keys default to "anthropic" for
+_HARDCODED_DEFAULTS (so every existing config is unaffected), and a missing
+fallback_provider defaults to the resolved primary_provider for that slot (not
+a hardcoded "anthropic") -- this keeps a partial air-gap override (only
+{step}_primary_provider set to "ollama") from silently reaching for Anthropic
+on fallback. Unknown provider names raise UnknownProviderError here, at
+resolution time, before any NEXUS/model I/O.
 """
 
 from __future__ import annotations
@@ -65,23 +78,32 @@ def resolve_model(
     step: str,
     board: dict | None = None,
     task: dict | None = None,
-) -> tuple[str, str]:
+) -> "tuple[ModelRef, ModelRef]":
     """
-    Return (primary, fallback) model strings for the given Strategy Ladder step.
+    Return (primary, fallback) ModelRefs for the given Strategy Ladder step.
 
     Parameters
     ----------
     step:   one of triage | research | plan | gate | execute | crystallize
     board:  dict with optional 'model_config' key (JSONB decoded dict)
     task:   dict with optional 'model_override' key (TEXT)
+
+    Raises UnknownProviderError if a resolved provider name isn't registered
+    (talos.llm_providers) -- surfaced here, at resolution time, not deep in a
+    spine node.
     """
+    from talos.llm_providers import ModelRef, get_driver
+
     if step not in _STEPS:
         raise ValueError(f"Unknown ladder step {step!r}; must be one of {_STEPS}")
 
     # Per-task all-step override — coarsest granularity.
     if task and task.get("model_override"):
-        override = task["model_override"]
-        return override, override
+        model = task["model_override"]
+        provider = task.get("model_override_provider", "anthropic")
+        get_driver(provider)
+        ref = ModelRef(provider, model)
+        return ref, ref
 
     # Start from hardcoded defaults, layer toml on top.
     merged: dict[str, str] = {**_HARDCODED_DEFAULTS, **_TOML_MODELS}
@@ -92,7 +114,12 @@ def resolve_model(
         if isinstance(board_cfg, dict):
             merged.update(board_cfg)
 
-    primary = merged.get(f"{step}_primary", merged.get(f"{step}", "claude-sonnet-4-6"))
-    fallback = merged.get(f"{step}_fallback", primary)
+    primary_model = merged.get(f"{step}_primary", merged.get(f"{step}", "claude-sonnet-4-6"))
+    primary_provider = merged.get(f"{step}_primary_provider", "anthropic")
+    fallback_model = merged.get(f"{step}_fallback", primary_model)
+    fallback_provider = merged.get(f"{step}_fallback_provider", primary_provider)
 
-    return primary, fallback
+    get_driver(primary_provider)
+    get_driver(fallback_provider)
+
+    return ModelRef(primary_provider, primary_model), ModelRef(fallback_provider, fallback_model)
