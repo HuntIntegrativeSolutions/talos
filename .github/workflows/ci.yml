@@ -21,6 +21,9 @@ jobs:
       - name: Install dependencies
         run: pip install -e ".[test]"
 
+      - name: Build sandbox image
+        run: docker build -t talos-sandbox talos/sandbox
+
       - name: Run tests
         env:
           TALOS_NEXUS_STUB: "1"
