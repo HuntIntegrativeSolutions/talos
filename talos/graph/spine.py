@@ -70,28 +70,42 @@ class SpineState(TypedDict):
 # ---------------------------------------------------------------------------
 
 def _call_with_fallback(
-    primary: str,
-    fallback: str,
+    primary: "ModelRef",
+    fallback: "ModelRef",
     *,
     prompt: str,
     resume: str | None,
     state: "SpineState",
     allowed_tools: list[str] | None = None,
     mcp_servers: dict | None = None,
+    manifest: dict | None = None,
+    budget_check=None,
 ) -> tuple[str, str, int]:
     """
     Try primary model, then fallback. Returns (text, session_id, tokens).
     Raises ModelFailureError if both fail — worker catches and escalates to gate.
+
+    BudgetExhaustedError (raised mid-call by call_model when budget_check aborts
+    a driver's tool loop, ADR-030/031) is not caught here — it is not
+    ModelCallError, so it propagates straight past this loop, aborting the
+    fallback attempt entirely. Retrying an already-over-budget call against the
+    fallback model would defeat the point of the budget cap.
     """
     from talos.llm import ModelCallError, call_model
     from talos.errors import ModelFailureError
 
-    for model in (primary, fallback):
+    for model_ref in (primary, fallback):
         try:
-            return call_model(model, prompt, resume=resume, allowed_tools=allowed_tools, mcp_servers=mcp_servers)
+            return call_model(
+                model_ref, prompt, resume=resume,
+                allowed_tools=allowed_tools, mcp_servers=mcp_servers,
+                manifest=manifest, budget_check=budget_check,
+            )
         except ModelCallError as exc:
             import logging
-            logging.getLogger(__name__).warning("model %r failed: %s", model, exc)
+            logging.getLogger(__name__).warning(
+                "model %s/%s failed: %s", model_ref.provider, model_ref.model, exc
+            )
 
     raise ModelFailureError(
         task_id=state["task_id"],
@@ -153,12 +167,31 @@ def read_node(state: SpineState) -> dict:
         allowed_tools = allowed_nexus_tools(manifest)
         mcp_servers = {"nexus": nexus_mcp_server_config(TALOS_NEXUS_URL)}
 
+        def _budget_check(tokens_so_far: int, tool_calls_so_far: int) -> None:
+            # Read-only check against the current budget snapshot — mutation
+            # still happens exactly once, post-hoc, below. Only drivers with
+            # their own tool loop (openai_compat) ever call this; the
+            # anthropic driver's behavior is unchanged (post-hoc check only).
+            total_tokens = budget["tokens_used"] + tokens_so_far
+            total_calls = budget["tool_calls"] + tool_calls_so_far
+            if budget["max_tokens"] and total_tokens > budget["max_tokens"]:
+                raise BudgetExhaustedError(
+                    task_id=state["task_id"], run_id=state["run_id"], board_id=board_id,
+                    reason=f"max_tokens={budget['max_tokens']} exceeded mid-call (used {total_tokens})",
+                )
+            if budget["max_tool_calls"] and total_calls > budget["max_tool_calls"]:
+                raise BudgetExhaustedError(
+                    task_id=state["task_id"], run_id=state["run_id"], board_id=board_id,
+                    reason=f"max_tool_calls={budget['max_tool_calls']} exceeded mid-call (used {total_calls})",
+                )
+
         resume_id = sdk_session_ids.get("read_node")
         prompt = state.get("task_body") or f"Fetch NEXUS context for task {state['task_id']}"
         text, session_id, tokens = _call_with_fallback(
             primary, fallback, prompt=prompt,
             resume=resume_id, state=state,
             allowed_tools=allowed_tools, mcp_servers=mcp_servers,
+            manifest=manifest, budget_check=_budget_check,
         )
         sdk_session_ids["read_node"] = session_id
         nexus_result = {"tag": text or "UNKNOWN", "status": "confirmed"}
