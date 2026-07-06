@@ -389,7 +389,8 @@ P0-Foundation (now)
   └── ADR-025–028, ADR-031–036 (written 2026-06-17) ✓
 
 P3.5-Harness (prerequisite before P4) ✓ closed 2026-07-05
-  ├── Prerequisite: Multi-provider LLM config (ADR-031) — Claude + Ollama + OAuth (deferred, out of P3.5 scope)
+  ├── Prerequisite: Multi-provider LLM config (ADR-031) — Claude + Ollama + OpenAI-compatible ✓
+  │     (implemented 2026-07-05, `talos/llm_providers/`; OAuth for non-Anthropic still deferred)
   ├── Wire real NEXUS MCP server — Streamable HTTP, not stdio (ADR-038) ✓
   │     (TALOS_NEXUS_STUB=1 remains the CI/test default; real wiring is opt-in via
   │     TALOS_NEXUS_STUB unset + TALOS_NEXUS_URL)

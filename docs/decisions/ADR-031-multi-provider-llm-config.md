@@ -1,8 +1,42 @@
 # ADR-031: Multi-provider LLM configuration — provider abstraction, OAuth, and air-gap support
 
-**Status:** Accepted
+**Status:** Accepted; implementation landed 2026-07-05
 **Date:** 2026-06-17
 **Deciders:** Hunt Integrative Solutions LLC
+
+## Implementation note (2026-07-05)
+
+Implemented in `talos/llm_providers/` (`base.py` protocol + `ModelRef` + registry,
+`anthropic.py`, `openai_compat.py`). `talos/llm.py::call_model()` dispatches by
+`ModelRef.provider`; `talos/config.py::resolve_model()` returns `(ModelRef, ModelRef)`.
+Three consequences the original decision text didn't cover, recorded here rather than
+silently reconciled:
+
+- **OAuth for non-Anthropic providers is deferred.** v1 ships API-key auth only for
+  `ollama`/`openai_compatible`; the "Auth methods" table above (OAuth for OpenAI/Codex)
+  is aspirational, not built. Anthropic's existing OAuth path (via the Agent SDK) is
+  unaffected.
+- **Tool-call loop design.** The Agent SDK's native MCP dispatch is Anthropic-only, so
+  `openai_compat.py` implements its own loop: NEXUS's manifest-filtered tool list
+  (`talos.nexus_client.list_nexus_tools_raw`, real MCP `tools/list` added for this,
+  using the `mcp` SDK's `streamablehttp_client`) is translated into OpenAI
+  function-calling schemas, executed via `call_nexus_tool_raw` (real MCP `tools/call`),
+  and results are fed back until the model stops calling tools or a `budget_check`
+  callback raises `BudgetExhaustedError` mid-loop. This is a real contract extension to
+  `call_model()`/`LLMProvider.call()` (a `budget_check` kwarg) beyond the original
+  ADR-030 post-hoc-only check — necessary because a single `call_model()` invocation can
+  now cover many tool round-trips for this driver, and waiting for it to return before
+  checking budget would let it spin through an unbounded number of NEXUS calls first.
+- **talos.toml key convention differs from this ADR's illustrative example.** The
+  nested `[models.triage]` / `provider =` / `fallback_model =` shape shown above does
+  not match how `talos/config.py` actually reads config (flat
+  `{step}_primary`/`{step}_fallback` keys — a discrepancy that already existed for
+  ADR-018's own example before this ADR). The implementation extends that flat
+  convention instead: `{step}_primary_provider`, `{step}_fallback_provider`,
+  `model_override_provider` (task-level). A missing `{step}_fallback_provider` defaults
+  to that slot's resolved `primary_provider` (not a hardcoded `"anthropic"`) — a
+  deliberate choice so a partial air-gap override (only `{step}_primary_provider` set
+  to `"ollama"`) can't silently leave the fallback reaching for Anthropic.
 
 ## Context
 

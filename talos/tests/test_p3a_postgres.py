@@ -218,27 +218,28 @@ def test_model_config_cascade(pg_setup, admin_conn):
     """
     Verify tasks.model_override > boards.model_config > talos.toml defaults.
     """
-    # Level 1: hardcoded defaults — no overrides.
+    # Level 1: hardcoded defaults — no overrides. resolve_model returns
+    # (ModelRef, ModelRef) as of ADR-031; .model carries the opaque string.
     primary, fallback = resolve_model("research")
-    assert isinstance(primary, str) and len(primary) > 0
-    assert isinstance(fallback, str) and len(fallback) > 0
+    assert isinstance(primary.model, str) and len(primary.model) > 0
+    assert isinstance(fallback.model, str) and len(fallback.model) > 0
 
     # Level 2: board-level JSONB override.
     board_cfg = {"research_primary": "claude-board-special", "research_fallback": "claude-board-fallback"}
     board = {"model_config": board_cfg}
     p2, f2 = resolve_model("research", board=board)
-    assert p2 == "claude-board-special"
-    assert f2 == "claude-board-fallback"
+    assert p2.model == "claude-board-special"
+    assert f2.model == "claude-board-fallback"
 
     # Level 3: per-task model_override supersedes board config.
     task = {"model_override": "claude-task-override"}
     p3, f3 = resolve_model("research", board=board, task=task)
-    assert p3 == "claude-task-override"
-    assert f3 == "claude-task-override"  # override applies to both slots
+    assert p3.model == "claude-task-override"
+    assert f3.model == "claude-task-override"  # override applies to both slots
 
     # Cascade ordering: board without task falls through to toml/defaults, not override.
     p4, f4 = resolve_model("research", board=board, task=None)
-    assert p4 == "claude-board-special"
+    assert p4.model == "claude-board-special"
 
 
 # ---------------------------------------------------------------------------

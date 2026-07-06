@@ -73,7 +73,8 @@ def test_no_reclaim_during_long_nexus_call(pg_setup, admin_conn, monkeypatch, ne
     call_lock = threading.Lock()
     call_count: list[int] = []
 
-    def slow_call_model(model, prompt, resume=None, *, span_ctx=None, allowed_tools=None, mcp_servers=None):
+    def slow_call_model(model, prompt, resume=None, *, span_ctx=None, allowed_tools=None,
+                        mcp_servers=None, manifest=None, budget_check=None):
         with call_lock:
             call_count.append(1)
             entry = len(call_count)
@@ -138,7 +139,8 @@ def test_heartbeat_beats_during_long_node(pg_setup, admin_conn, monkeypatch, nex
 
     call_blocking = threading.Event()
 
-    def slow_call_model(model, prompt, resume=None, *, span_ctx=None, allowed_tools=None, mcp_servers=None):
+    def slow_call_model(model, prompt, resume=None, *, span_ctx=None, allowed_tools=None,
+                        mcp_servers=None, manifest=None, budget_check=None):
         call_blocking.wait(timeout=10)
         return "long-nexus-response", "session-1", 10
 
@@ -187,7 +189,8 @@ def test_fallback_on_primary_failure_end_to_end(pg_setup, admin_conn, nexus_live
     primary, fallback = resolve_model("research")
     call_log: list[str] = []
 
-    def flaky_call_model(model, prompt, resume=None, *, span_ctx=None, allowed_tools=None, mcp_servers=None):
+    def flaky_call_model(model, prompt, resume=None, *, span_ctx=None, allowed_tools=None,
+                         mcp_servers=None, manifest=None, budget_check=None):
         call_log.append(model)
         if model == primary:
             raise talos.llm.ModelCallError("primary failed (simulated)")
@@ -215,7 +218,8 @@ def test_fallback_on_primary_failure_end_to_end(pg_setup, admin_conn, nexus_live
 def test_budget_hard_cap_end_to_end(pg_setup, admin_conn, nexus_live_mode):
     tiny_budget: TaskBudget = {**default_budget(), "max_tokens": 1}
 
-    def big_call_model(model, prompt, resume=None, *, span_ctx=None, allowed_tools=None, mcp_servers=None):
+    def big_call_model(model, prompt, resume=None, *, span_ctx=None, allowed_tools=None,
+                       mcp_servers=None, manifest=None, budget_check=None):
         return "response", "session-1", 1000  # exceeds max_tokens=1
 
     board_id, task_id = "p35-budget-board", "p35-budget-task"
