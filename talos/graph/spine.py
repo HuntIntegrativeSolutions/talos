@@ -226,6 +226,44 @@ def read_node(state: SpineState) -> dict:
 # Node 2: deliverable_node
 # ---------------------------------------------------------------------------
 
+def _fire_review_email(board_id: str, task_id: str) -> None:
+    """Optional SMTP notification when a task enters review. No-op if unconfigured.
+    Failures are logged and swallowed — mirrors _fire_escalation_webhook."""
+    import os
+    host = os.environ.get("TALOS_SMTP_HOST", "").strip()
+    if not host:
+        return
+    to_addrs = [a.strip() for a in os.environ.get("TALOS_SMTP_TO", "").split(",") if a.strip()]
+    if not to_addrs:
+        return
+    try:
+        import smtplib
+        from email.message import EmailMessage
+        msg = EmailMessage()
+        msg["Subject"] = f"TALOS: task {task_id} awaiting review"
+        msg["From"] = os.environ.get("TALOS_SMTP_FROM", "talos@localhost")
+        msg["To"] = ", ".join(to_addrs)
+        msg.set_content(
+            f"Task {task_id} on board {board_id} entered review.\n"
+            f"Review it at the gate UI."
+        )
+        port = int(os.environ.get("TALOS_SMTP_PORT", "587"))
+        use_tls = os.environ.get("TALOS_SMTP_TLS", "1") != "0"
+        with smtplib.SMTP(host, port, timeout=10) as smtp:
+            if use_tls:
+                smtp.starttls()
+            user = os.environ.get("TALOS_SMTP_USER")
+            password = os.environ.get("TALOS_SMTP_PASSWORD")
+            if user and password:
+                smtp.login(user, password)
+            smtp.send_message(msg)
+    except Exception:
+        import logging
+        logging.getLogger(__name__).warning(
+            "review-entry email failed for task %s; gate transition unaffected", task_id
+        )
+
+
 def deliverable_node(state: SpineState) -> dict:
     """
     Build (or accept an edited) deliverable, run all registered critics via the
@@ -298,11 +336,19 @@ def deliverable_node(state: SpineState) -> dict:
                 )
 
             cur.execute(
-                "UPDATE tasks SET status = 'review' WHERE id = %s AND board_id = %s",
-                (state["task_id"], state["board_id"]),
+                """
+                UPDATE tasks
+                SET status = 'review',
+                    deliverable = %s::jsonb,
+                    review_entered_at = NOW()
+                WHERE id = %s AND board_id = %s
+                """,
+                (json.dumps(deliverable), state["task_id"], state["board_id"]),
             )
     finally:
         conn.close()
+
+    _fire_review_email(state["board_id"], state["task_id"])
 
     # Gate interrupt is semantically "task is now in review awaiting human decision."
     emit_span(ctx, "spine.gate.interrupt")

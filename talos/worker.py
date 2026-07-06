@@ -321,7 +321,8 @@ def _handle_budget_exhaustion(exc: BudgetExhaustedError) -> None:
                 (exc.run_id,),
             )
             cur.execute(
-                "UPDATE tasks SET status = 'review' WHERE id = %s AND board_id = %s",
+                "UPDATE tasks SET status = 'review', review_entered_at = NOW() "
+                "WHERE id = %s AND board_id = %s",
                 (exc.task_id, exc.board_id),
             )
     finally:
@@ -338,7 +339,8 @@ def _handle_model_failure(exc: ModelFailureError) -> None:
                 (exc.run_id,),
             )
             cur.execute(
-                "UPDATE tasks SET status = 'review' WHERE id = %s AND board_id = %s",
+                "UPDATE tasks SET status = 'review', review_entered_at = NOW() "
+                "WHERE id = %s AND board_id = %s",
                 (exc.task_id, exc.board_id),
             )
     finally:

@@ -79,7 +79,26 @@ is escalated (Open questions #5).
   "all_required_pass": false, "human_approved": false, "gate_satisfied": false }
 ```
 Plus the per-critic detail rows from `task_gate_results` (`critic_name`, `required`, `verdict ∈
-pass|fail|warn`, `evidence_uri`, `details`, `created_at`).
+pass|fail|warn`, `evidence_uri`, `details`, `waivable`, `safety_class`, `created_at` — the last two
+added additively in P7a; both columns already existed on `task_gate_results` per `schema-p2.sql`,
+this only adds them to the projection) plus a top-level `deliverable` field (the JSONB `tasks`
+deliverable the human reviews at the gate; `null` for tasks that entered `review` via a worker
+error-escalation path rather than `deliverable_node`, since no deliverable was ever produced —
+added additively in P7a, `tasks.deliverable` per `V0004_gate_ui`).
+
+**`getReviewQueue(board_id)` → ReviewQueueEntry[]** *(added additively in P7a)* — tasks with
+`status='review'` for the board, ordered oldest-first by `tasks.review_entered_at` (added in
+`V0004_gate_ui`; set by `deliverable_node` and by the worker's error-escalation paths). Each entry:
+`{ task_id, title, assignee, review_entered_at, seconds_in_review, overdue }`, plus a top-level
+`sla_minutes` echoing the board's config. `overdue` is server-computed against `boards.sla_minutes`;
+`null` SLA means no entry is ever flagged overdue. JWT-guarded per Open Question #4's resolution
+(`X-Human-Session`, `token_class: "human"`).
+
+**`getBoardSla(board_id)` / `patchBoardSla(board_id, sla_minutes)`** *(added additively in P7a)* —
+read/write the board-level `sla_minutes INTEGER` column (`boards.sla_minutes`, nullable, no
+system-level default, per ROADMAP P7a). `patchBoardSla` with `sla_minutes: null` explicitly clears
+it. Both JWT-guarded. This is board configuration, not task truth — it does not touch the
+Invariant #2 no-write-to-task-truth rule.
 
 **`getGantt(board_id)` → GanttRow[]** — projection of `v_gantt` (one row per task bar +
 milestone context: `earliest_start`, `earliest_finish`, `latest_finish`, `float_hours`,

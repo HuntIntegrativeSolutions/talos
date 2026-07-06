@@ -20,7 +20,7 @@ from typing import Any
 
 import jwt as _jwt
 import psycopg2
-from fastapi import FastAPI, Header, HTTPException
+from fastapi import Depends, FastAPI, Header, HTTPException
 from pydantic import BaseModel
 
 from talos.db import board_scope, get_conn
@@ -113,6 +113,35 @@ class GateOutcomeRequest(BaseModel):
     new_deliverable: dict | None = None  # required for edit
     # NOTE: approved_by is absent — it is extracted from the JWT sub claim
     # in X-Human-Session, never from the request body. (ADR-036)
+
+
+class PatchSlaRequest(BaseModel):
+    sla_minutes: int | None = None
+
+
+# ---------------------------------------------------------------------------
+# Auth dependency (ADR-036) — shared by the gate-outcome write and the
+# gate-UI read endpoints below.
+# ---------------------------------------------------------------------------
+
+def require_human_session(
+    x_human_session: str | None = Header(default=None, alias="X-Human-Session"),
+) -> dict:
+    """Validate X-Human-Session per ADR-036. Returns the decoded JWT claims.
+
+    Raises HTTP 403 with the frozen board-api.md error shape on any failure:
+    missing header, invalid/expired signature, or token_class != "human".
+    """
+    if not x_human_session:
+        raise HTTPException(status_code=403, detail={"error": "human session required"})
+    try:
+        from talos.auth.tokens import validate_token
+        claims = validate_token(x_human_session)
+    except _jwt.PyJWTError:
+        raise HTTPException(status_code=403, detail={"error": "human session required"})
+    if claims.get("token_class") != "human":
+        raise HTTPException(status_code=403, detail={"error": "human session required"})
+    return claims
 
 
 # ---------------------------------------------------------------------------
@@ -229,7 +258,8 @@ def get_gate_status(board_id: str, task_id: str) -> dict[str, Any]:
             # Also return the per-critic detail rows for the cockpit.
             cur.execute(
                 """
-                SELECT critic_name, required, verdict, evidence_uri, details, created_at
+                SELECT critic_name, required, verdict, evidence_uri, details,
+                       waivable, safety_class, created_at
                 FROM task_gate_results
                 WHERE task_id = %s AND board_id = %s
                 ORDER BY created_at DESC
@@ -237,13 +267,101 @@ def get_gate_status(board_id: str, task_id: str) -> dict[str, Any]:
                 (task_id, board_id),
             )
             critics = [dict(r) for r in cur.fetchall()]
+            # The deliverable the human reviews (P7a). Null for tasks that
+            # entered review via a worker error-escalation path rather than
+            # deliverable_node (no deliverable was ever produced).
+            cur.execute(
+                "SELECT deliverable FROM tasks WHERE id = %s AND board_id = %s",
+                (task_id, board_id),
+            )
+            deliverable_row = cur.fetchone()
     finally:
         conn.close()
     if gate_row is None:
         raise HTTPException(status_code=404, detail="task not found")
     result = dict(gate_row)
     result["critics"] = critics
+    result["deliverable"] = deliverable_row["deliverable"] if deliverable_row else None
     return result
+
+
+@app.get("/boards/{board_id}/review-queue")
+def get_review_queue(
+    board_id: str, claims: dict = Depends(require_human_session),
+) -> dict[str, Any]:
+    conn = get_conn()
+    try:
+        with board_scope(conn, board_id) as cur:
+            cur.execute(
+                """
+                SELECT id AS task_id, title, assignee, review_entered_at,
+                       EXTRACT(EPOCH FROM (NOW() - review_entered_at))::bigint
+                           AS seconds_in_review
+                FROM tasks
+                WHERE board_id = %s AND status = 'review'
+                ORDER BY review_entered_at ASC NULLS LAST
+                """,
+                (board_id,),
+            )
+            tasks = [dict(r) for r in cur.fetchall()]
+    finally:
+        conn.close()
+    # boards carries no RLS policy — plain read, same precedent as create_board().
+    conn = get_conn()
+    try:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute("SELECT sla_minutes FROM boards WHERE id = %s", (board_id,))
+            board_row = cur.fetchone()
+    finally:
+        conn.close()
+    if board_row is None:
+        raise HTTPException(status_code=404, detail="board not found")
+    sla_minutes = board_row["sla_minutes"]
+    for t in tasks:
+        t["overdue"] = bool(
+            sla_minutes is not None
+            and t["seconds_in_review"] is not None
+            and t["seconds_in_review"] / 60.0 > sla_minutes
+        )
+    return {"board_id": board_id, "sla_minutes": sla_minutes, "tasks": tasks}
+
+
+@app.get("/boards/{board_id}/sla")
+def get_board_sla(
+    board_id: str, claims: dict = Depends(require_human_session),
+) -> dict[str, Any]:
+    conn = get_conn()
+    try:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute("SELECT id, sla_minutes FROM boards WHERE id = %s", (board_id,))
+            row = cur.fetchone()
+    finally:
+        conn.close()
+    if row is None:
+        raise HTTPException(status_code=404, detail="board not found")
+    return {"board_id": row["id"], "sla_minutes": row["sla_minutes"]}
+
+
+@app.patch("/boards/{board_id}/sla")
+def patch_board_sla(
+    board_id: str, req: PatchSlaRequest, claims: dict = Depends(require_human_session),
+) -> dict[str, Any]:
+    conn = get_conn()
+    try:
+        conn.autocommit = False
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute(
+                "UPDATE boards SET sla_minutes = %s WHERE id = %s "
+                "RETURNING id, sla_minutes",
+                (req.sla_minutes, board_id),
+            )
+            row = cur.fetchone()
+        conn.commit()
+    finally:
+        conn.close()
+    if row is None:
+        raise HTTPException(status_code=404, detail="board not found")
+    return {"board_id": row["id"], "sla_minutes": row["sla_minutes"]}
 
 
 @app.post("/boards/{board_id}/tasks/{task_id}/gate")
@@ -251,29 +369,10 @@ def submit_gate_outcome(
     board_id: str,
     task_id: str,
     req: GateOutcomeRequest,
-    x_human_session: str | None = Header(default=None, alias="X-Human-Session"),
+    claims: dict = Depends(require_human_session),
 ) -> dict[str, Any]:
-    # RT-01: X-Human-Session must carry a validated TALOS JWT with
-    # token_class="human". approved_by = JWT sub claim. (ADR-036)
-    if not x_human_session:
-        raise HTTPException(
-            status_code=403,
-            detail={"error": "human session required"},
-        )
-    try:
-        from talos.auth.tokens import validate_token
-        _claims = validate_token(x_human_session)
-    except _jwt.PyJWTError:
-        raise HTTPException(
-            status_code=403,
-            detail={"error": "human session required"},
-        )
-    if _claims.get("token_class") != "human":
-        raise HTTPException(
-            status_code=403,
-            detail={"error": "human session required"},
-        )
-    approved_by = _claims["sub"]
+    # RT-01: approved_by = JWT sub claim, never client-supplied. (ADR-036)
+    approved_by = claims["sub"]
 
     _VALID_OUTCOMES = {"approve", "reject", "waive", "edit", "escalate"}
     if req.outcome not in _VALID_OUTCOMES:

@@ -104,6 +104,12 @@ def pg_setup(pg_container):
     for _t in _RLS_TABLES:
         cur.execute(f"ALTER TABLE {_t} FORCE ROW LEVEL SECURITY")
 
+    # Apply V0004 content directly (gate-UI columns — P7a). No pre-existing
+    # 'review' rows exist yet in a fresh container, so no backfill is needed.
+    cur.execute("ALTER TABLE tasks ADD COLUMN deliverable JSONB")
+    cur.execute("ALTER TABLE tasks ADD COLUMN review_entered_at timestamptz")
+    cur.execute("ALTER TABLE boards ADD COLUMN sla_minutes INTEGER")
+
     # Create talos_app as NOSUPERUSER so RLS applies to it.
     # The table owner (postgres) bypasses RLS; talos_app does not.
     cur.execute(
