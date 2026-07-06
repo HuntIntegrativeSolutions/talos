@@ -110,6 +110,33 @@ def pg_setup(pg_container):
     cur.execute("ALTER TABLE tasks ADD COLUMN review_entered_at timestamptz")
     cur.execute("ALTER TABLE boards ADD COLUMN sla_minutes INTEGER")
 
+    # Apply V0005 content directly (board-scoped NEXUS read cache — ADR-035 / P4a).
+    # Self-contained: FORCE is applied here, not via the shared _RLS_TABLES loop,
+    # since nexus_cache postdates V0003 and self-forces in the real migration too.
+    cur.execute("""
+        CREATE TABLE nexus_cache (
+            id          BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+            board_id    TEXT NOT NULL REFERENCES boards(id),
+            tool_name   TEXT NOT NULL,
+            params_hash TEXT NOT NULL,
+            result_json JSONB NOT NULL,
+            fetched_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+            expires_at  TIMESTAMPTZ NOT NULL,
+            UNIQUE (board_id, tool_name, params_hash)
+        )
+    """)
+    cur.execute("ALTER TABLE nexus_cache ENABLE ROW LEVEL SECURITY")
+    cur.execute("""
+        CREATE POLICY nexus_cache_board_isolation ON nexus_cache
+            USING     (board_id = current_setting('app.board_id', true))
+            WITH CHECK (board_id = current_setting('app.board_id', true))
+    """)
+    cur.execute("""
+        CREATE POLICY nexus_cache_admin_bypass ON nexus_cache
+            USING (current_user = 'talos_admin')
+    """)
+    cur.execute("ALTER TABLE nexus_cache FORCE ROW LEVEL SECURITY")
+
     # Create talos_app as NOSUPERUSER so RLS applies to it.
     # The table owner (postgres) bypasses RLS; talos_app does not.
     cur.execute(

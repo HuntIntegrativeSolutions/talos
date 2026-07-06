@@ -7,6 +7,8 @@ let _currentBoardId = null;
 let _currentTaskId = null;
 let _currentGateStatus = null;
 let _showingRaw = false;
+let _nexusCacheTickTimer = null;
+let _lastNexusCacheData = [];
 
 async function openReviewTask(taskId) {
   _currentBoardId = currentBoardId();
@@ -17,6 +19,8 @@ async function openReviewTask(taskId) {
   document.getElementById("review-outcome-result").textContent = "";
   clearOutcomeFields();
   await loadReviewTask();
+  if (_nexusCacheTickTimer) clearInterval(_nexusCacheTickTimer);
+  _nexusCacheTickTimer = setInterval(renderNexusCacheTable, 1000);
 }
 
 function clearOutcomeFields() {
@@ -27,6 +31,8 @@ function clearOutcomeFields() {
 }
 
 function backToQueue() {
+  if (_nexusCacheTickTimer) clearInterval(_nexusCacheTickTimer);
+  _nexusCacheTickTimer = null;
   showQueueScreen();
 }
 
@@ -45,6 +51,8 @@ async function loadReviewTask() {
   renderDeliverable(gate.deliverable);
   renderCriticsTable(gate.critics || []);
   renderOutcomeButtons();
+  _lastNexusCacheData = gate.nexus_results_freshness || [];
+  renderNexusCacheTable();
 }
 
 function renderDeliverable(deliverable) {
@@ -124,6 +132,52 @@ function renderCriticsTable(critics) {
     }
     if (c.safety_class) row.classList.add("safety-row");
     tbody.appendChild(row);
+  }
+}
+
+function renderNexusCacheTable() {
+  const tbody = document.getElementById("nexus-cache-rows");
+  tbody.innerHTML = "";
+  if (_lastNexusCacheData.length === 0) {
+    const row = document.createElement("tr");
+    const cell = document.createElement("td");
+    cell.colSpan = 3;
+    cell.textContent = "No cached NEXUS results for this board.";
+    row.appendChild(cell);
+    tbody.appendChild(row);
+    return;
+  }
+  for (const entry of _lastNexusCacheData) {
+    const fetchedAt = entry.fetched_at ? new Date(entry.fetched_at) : null;
+    const liveSeconds = fetchedAt ? (Date.now() - fetchedAt.getTime()) / 1000 : null;
+
+    const row = document.createElement("tr");
+    const toolCell = document.createElement("td");
+    toolCell.textContent = entry.tool_name;
+
+    const ageCell = document.createElement("td");
+    ageCell.textContent = liveSeconds != null ? `${formatDuration(liveSeconds)} ago` : "—";
+
+    const actionCell = document.createElement("td");
+    const btn = document.createElement("button");
+    btn.textContent = "Re-fetch";
+    btn.addEventListener("click", () => refetchNexusCacheEntry(entry.tool_name));
+    actionCell.appendChild(btn);
+
+    row.appendChild(toolCell);
+    row.appendChild(ageCell);
+    row.appendChild(actionCell);
+    tbody.appendChild(row);
+  }
+}
+
+async function refetchNexusCacheEntry(toolName) {
+  const resp = await authFetch(
+    `/boards/${encodeURIComponent(_currentBoardId)}/nexus_cache/invalidate?tool_name=${encodeURIComponent(toolName)}`,
+    { method: "POST" }
+  );
+  if (resp.ok) {
+    await loadReviewTask();
   }
 }
 

@@ -77,3 +77,40 @@ fallback for cold starts.
   cache on cache miss.
 - The gate view API (`/tasks/{id}/gate`) includes `nexus_results_freshness` in its response.
 - `TALOS_NEXUS_STUB=1` bypasses cache logic (stubs return immediately).
+
+## Amendment (P4a, 2026-07-05)
+
+Implementation surfaced several corrections and scope decisions against the design above:
+
+1. **`board_id`/`id` types were wrong.** The DDL sketch declared `board_id UUID` and a UUID
+   PK. Every real board-scoped table (`boards.id`, `tasks.board_id`,
+   `task_gate_escalations.board_id`) is `TEXT` — `boards.id` is a human-chosen slug (`'acme'`,
+   `'his-internal'`), not a UUID. The migration (`V0005_nexus_cache.py`) uses
+   `board_id TEXT NOT NULL REFERENCES boards(id)` and `id BIGINT GENERATED ALWAYS AS IDENTITY`,
+   matching the codebase-wide convention — no table anywhere uses a UUID primary key.
+2. **NEXUS runs over HTTP, not local stdio.** This ADR's Context section assumed a local
+   stdio subprocess; v1 actually runs NEXUS over Streamable HTTP (ADR-038, `10.0.0.80:8765`).
+   This strengthens rather than weakens the caching rationale — real network latency applies
+   in addition to NEXUS-side compute time. The design is otherwise unchanged.
+3. **Coverage gap — Anthropic path is not cached.** The Claude Agent SDK's `query()` performs
+   MCP tool calls to NEXUS internally/opaquely (`talos/llm_providers/anthropic.py`); there is
+   no Python interception point for individual tool calls on that path. Caching is implemented
+   only in `talos/llm_providers/openai_compat.py`'s explicit tool loop. This is a real,
+   documented asymmetry, not an oversight — do not assume full coverage.
+4. **Cacheability predicate: read + write:offline_artifact, not read-only.** This ADR's own
+   motivating example, `full_plc_documentation` (30–120s), is `profile: "write"`,
+   `write_kind: "offline_artifact"` in `capabilities/nexus/manifest.json` — not `profile:
+   "read"`. A strict read-only cache would never speed up the tool this ADR was written for.
+   `talos/nexus_cache.py::is_cacheable()` caches both `profile == "read"` and
+   (`profile == "write"` and `write_kind == "offline_artifact"`) results — both are
+   non-live/idempotent per ADR-026's classification, matching the existing `write_grant`
+   semantics in `talos.nexus_client.allowed_nexus_tool_names()`. Other write profiles
+   (`sim_only`) are never cached.
+5. **`nexus_results_freshness` is board-wide, not per-task.** `nexus_cache` has no `task_id`
+   column, matching this ADR's own DDL. `GET .../gate` returns every non-expired cache row for
+   the board, not scoped to "what this specific task run used." Per-task attribution is
+   deferred — not designed here.
+6. **L5X-re-ingestion invalidation is deferred.** No proxy exists yet to detect `ingest_l5x`
+   calls and emit an invalidation event (that's ADR-033's gateway proxy, not built). Only TTL
+   expiry and the manual `POST /boards/{id}/nexus_cache/invalidate?tool_name=...` endpoint are
+   implemented in P4a.

@@ -100,6 +100,7 @@ def _call_with_fallback(
                 model_ref, prompt, resume=resume,
                 allowed_tools=allowed_tools, mcp_servers=mcp_servers,
                 manifest=manifest, budget_check=budget_check,
+                board_id=state["board_id"],
             )
         except ModelCallError as exc:
             import logging

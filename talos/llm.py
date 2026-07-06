@@ -43,6 +43,7 @@ def call_model(
     mcp_servers: dict | None = None,
     manifest: dict | None = None,
     budget_check=None,
+    board_id: str | None = None,
 ) -> tuple[str, str, int]:
     """
     Call the driver registered for model_ref.provider.
@@ -74,7 +75,7 @@ def call_model(
         result = driver.call(
             model_ref.model, prompt, resume,
             allowed_tools=allowed_tools, mcp_servers=mcp_servers,
-            manifest=manifest, budget_check=budget_check,
+            manifest=manifest, budget_check=budget_check, board_id=board_id,
         )
         latency_ms = int((time.monotonic() - t0) * 1000)
         _maybe_emit_llm_span(span_ctx, model_ref, result[2], 0, latency_ms)

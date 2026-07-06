@@ -291,3 +291,28 @@ def test_v0003_migration_ddl_round_trip(pg_setup, admin_conn):
             f"Upgrade DDL did not restore FORCE on: {missing_after}"
         )
     # conn.rollback() at teardown reverts both ALTER TABLE sequences — no state leak.
+
+
+# ---------------------------------------------------------------------------
+# nexus_cache FORCE RLS — self-forced by V0005, not part of V0003's table list
+# ---------------------------------------------------------------------------
+
+def test_nexus_cache_force_rls_applied(pg_setup, admin_conn):
+    """
+    nexus_cache (ADR-035 / P4a) postdates V0003 and applies its own FORCE ROW
+    LEVEL SECURITY statement in V0005_nexus_cache.py rather than extending
+    V0003's hardcoded _RLS_TABLES list. Verify it independently.
+    """
+    with admin_conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT relforcerowsecurity
+            FROM pg_class
+            WHERE relname = 'nexus_cache'
+              AND relkind = 'r'
+              AND relnamespace = (SELECT oid FROM pg_namespace WHERE nspname = 'public')
+            """
+        )
+        row = cur.fetchone()
+    assert row is not None, "nexus_cache table not found"
+    assert row[0] is True, "nexus_cache missing FORCE ROW LEVEL SECURITY"

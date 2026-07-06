@@ -84,7 +84,15 @@ added additively in P7a; both columns already existed on `task_gate_results` per
 this only adds them to the projection) plus a top-level `deliverable` field (the JSONB `tasks`
 deliverable the human reviews at the gate; `null` for tasks that entered `review` via a worker
 error-escalation path rather than `deliverable_node`, since no deliverable was ever produced —
-added additively in P7a, `tasks.deliverable` per `V0004_gate_ui`).
+added additively in P7a, `tasks.deliverable` per `V0004_gate_ui`), plus a top-level
+`nexus_results_freshness: {tool_name, fetched_at, nexus_cache_age_seconds}[]` array *(added
+additively in P4a, ADR-035)* — every non-expired `nexus_cache` row for the board (board-wide,
+not scoped to this task's own run, since `nexus_cache` carries no `task_id` column).
+
+**`invalidateNexusCache(board_id, tool_name)`** *(added additively in P4a, ADR-035)* —
+`POST /boards/{board_id}/nexus_cache/invalidate?tool_name=...`. Expires matching `nexus_cache`
+rows for the board so the next call re-fetches live. JWT-guarded (`X-Human-Session`,
+`token_class: "human"`), same as the other write endpoints in this contract.
 
 **`getReviewQueue(board_id)` → ReviewQueueEntry[]** *(added additively in P7a)* — tasks with
 `status='review'` for the board, ordered oldest-first by `tasks.review_entered_at` (added in

@@ -275,6 +275,20 @@ def get_gate_status(board_id: str, task_id: str) -> dict[str, Any]:
                 (task_id, board_id),
             )
             deliverable_row = cur.fetchone()
+            # Board-scoped NEXUS read cache staleness (ADR-035/P4a). nexus_cache
+            # has no task_id column (matches the ADR's own DDL) — this is every
+            # non-expired cache entry for the board, not scoped to this task's run.
+            cur.execute(
+                """
+                SELECT tool_name, fetched_at,
+                       EXTRACT(EPOCH FROM (now() - fetched_at))::bigint AS nexus_cache_age_seconds
+                FROM nexus_cache
+                WHERE board_id = %s AND expires_at > now()
+                ORDER BY fetched_at DESC
+                """,
+                (board_id,),
+            )
+            nexus_results_freshness = [dict(r) for r in cur.fetchall()]
     finally:
         conn.close()
     if gate_row is None:
@@ -282,7 +296,19 @@ def get_gate_status(board_id: str, task_id: str) -> dict[str, Any]:
     result = dict(gate_row)
     result["critics"] = critics
     result["deliverable"] = deliverable_row["deliverable"] if deliverable_row else None
+    result["nexus_results_freshness"] = nexus_results_freshness
     return result
+
+
+@app.post("/boards/{board_id}/nexus_cache/invalidate")
+def invalidate_nexus_cache(
+    board_id: str, tool_name: str, claims: dict = Depends(require_human_session),
+) -> dict[str, Any]:
+    """Force re-fetch of a cached NEXUS tool result (ADR-035/P4a)."""
+    from talos.nexus_cache import invalidate
+
+    count = invalidate(board_id, tool_name)
+    return {"board_id": board_id, "tool_name": tool_name, "invalidated": count}
 
 
 @app.get("/boards/{board_id}/review-queue")

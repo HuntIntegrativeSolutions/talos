@@ -108,7 +108,7 @@ def test_call_model_dispatches_to_registered_driver(clean_registry, nexus_live_m
 
     class FakeDriver:
         def call(self, model, prompt, resume, *, allowed_tools=None, mcp_servers=None,
-                  manifest=None, budget_check=None):
+                  manifest=None, budget_check=None, board_id=None):
             calls.append((model, prompt))
             return "fake text", "fake-session", 7
 
@@ -218,13 +218,13 @@ def test_cross_provider_fallback_anthropic_to_ollama(clean_registry, nexus_live_
 
     class FailingDriver:
         def call(self, model, prompt, resume, *, allowed_tools=None, mcp_servers=None,
-                  manifest=None, budget_check=None):
+                  manifest=None, budget_check=None, board_id=None):
             call_log.append(("anthropic", model))
             raise RuntimeError("primary down")
 
     class OkDriver:
         def call(self, model, prompt, resume, *, allowed_tools=None, mcp_servers=None,
-                  manifest=None, budget_check=None):
+                  manifest=None, budget_check=None, board_id=None):
             call_log.append(("ollama", model))
             return "fallback text", "session-2", 5
 

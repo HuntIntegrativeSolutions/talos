@@ -53,6 +53,31 @@ class OpenAICompatibleDriver:
         self.default_base_url = default_base_url
         self.requires_api_key = requires_api_key
 
+    def _call_tool_cached(
+        self, board_id: str | None, manifest: dict | None, nexus_url: str, name: str, args: dict
+    ) -> str:
+        """
+        Board-scoped NEXUS read cache (ADR-035/P4a). Only reachable from this
+        driver's explicit tool loop — the Anthropic driver's MCP dispatch is
+        opaque and has no equivalent interception point.
+        """
+        from talos import nexus_cache
+
+        cacheable = board_id is not None and manifest is not None and nexus_cache.is_cacheable(name, manifest)
+        if cacheable:
+            cached = nexus_cache.get_cached(board_id, name, args)
+            if cached is not None:
+                return cached
+
+        result = asyncio.run(call_nexus_tool_raw(nexus_url, name, args))
+        content = _stringify_tool_result(result)
+
+        if cacheable:
+            ttl = nexus_cache.get_ttl_seconds(board_id)
+            nexus_cache.put_cached(board_id, name, args, content, ttl)
+
+        return content
+
     def _credentials(self) -> tuple[str | None, str]:
         from talos.llm import ModelCallError
 
@@ -77,6 +102,7 @@ class OpenAICompatibleDriver:
         mcp_servers: dict | None = None,
         manifest: dict | None = None,
         budget_check=None,
+        board_id: str | None = None,
     ) -> tuple[str, str, int]:
         api_key, base_url = self._credentials()
         nexus_url = (mcp_servers or {}).get("nexus", {}).get("url")
@@ -122,11 +148,11 @@ class OpenAICompatibleDriver:
                     budget_check(tokens_total, tool_calls_made)
                 name = tc["function"]["name"]
                 args = json.loads(tc["function"].get("arguments") or "{}")
-                result = asyncio.run(call_nexus_tool_raw(nexus_url, name, args))
+                content = self._call_tool_cached(board_id, manifest, nexus_url, name, args)
                 messages.append({
                     "role": "tool",
                     "tool_call_id": tc["id"],
-                    "content": _stringify_tool_result(result),
+                    "content": content,
                 })
             # loop back and call the model again with tool results appended
 

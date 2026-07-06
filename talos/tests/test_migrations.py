@@ -81,7 +81,7 @@ def test_alembic_upgrade_head_on_empty_db(empty_db_dsn):
 
     cur.execute("SELECT version_num FROM alembic_version")
     (version,) = cur.fetchone()
-    assert version == "V0004"
+    assert version == "V0005"
 
     cur.execute(
         "SELECT column_name FROM information_schema.columns "

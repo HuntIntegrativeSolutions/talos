@@ -9,6 +9,11 @@ manifest/budget_check are accepted for protocol conformance but intentionally
 ignored: the Agent SDK's own MCP tool loop is opaque to us, so mid-call budget
 checks aren't possible for this driver. ADR-030 enforcement for anthropic stays
 entirely post-hoc in spine.read_node, unchanged from pre-ADR-031 behavior.
+
+board_id (ADR-035/P4a) is likewise accepted but unused here: the NEXUS read
+cache wraps openai_compat's explicit tool-call site only. The SDK's internal
+MCP dispatch gives this driver no per-tool-call interception point, so this
+path is never cached.
 """
 
 from __future__ import annotations
@@ -31,6 +36,7 @@ class AnthropicDriver:
         mcp_servers: dict | None = None,
         manifest: dict | None = None,
         budget_check=None,
+        board_id: str | None = None,
     ) -> tuple[str, str, int]:
         return asyncio.run(
             _async_call(model, prompt, resume, allowed_tools=allowed_tools, mcp_servers=mcp_servers)

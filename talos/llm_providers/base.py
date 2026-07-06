@@ -39,6 +39,7 @@ class LLMProvider(Protocol):
         mcp_servers: dict | None = None,
         manifest: dict | None = None,
         budget_check: BudgetCheck | None = None,
+        board_id: str | None = None,
     ) -> tuple[str, str, int]:
         ...
 
