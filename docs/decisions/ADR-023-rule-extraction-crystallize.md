@@ -141,9 +141,57 @@ The dispatcher passes retrieved rules into the task context before the Strategy 
 
 ## Action items
 
-1. [ ] Add `rules` table and `rule_ingestion_log` table to P4 schema migration.
-2. [ ] Define Graphiti triplet schema for factual and procedural rule types in P4.
-3. [ ] Implement extraction agent, ingestion pipeline, and dedup logic in P5.
-4. [ ] Implement the verified/safety edge surfacing layer in P5 (pre-invalidation gate proposal).
-5. [ ] Wire retrieved rules into task context in the dispatcher (P5 or P6).
-6. [ ] Measure Graphiti ingestion cost on real traces before enabling always-automatic extraction.
+1. [x] Add `rules` table and `rule_ingestion_log` table to P4 schema migration.
+2. [~] Define Graphiti triplet schema for factual and procedural rule types in P4. — retired as
+   moot for v1; see amendment below.
+3. [x] Implement extraction agent, ingestion pipeline, and dedup logic in P5.
+4. [x] Implement the verified/safety edge surfacing layer in P5 (pre-invalidation gate proposal).
+5. [x] Wire retrieved rules into task context in the dispatcher (P5 or P6).
+6. [~] Measure Graphiti ingestion cost on real traces before enabling always-automatic extraction.
+   — retired as moot for v1; no Graphiti path exists to measure.
+
+## Amendment (2026-07-06, P5-Crystallize implementation)
+
+P5 implements all three rule types against **Postgres + Chroma only** — the Graphiti/Neo4j
+bi-temporal design above (factual/procedural as graph triplets with `invalid_at`) is deferred
+post-v1 per ROADMAP.md and was never built. This amendment records what actually shipped,
+without weakening the boundaries this ADR established:
+
+- **Storage:** all three rule types (factual, procedural, project-context) are stored
+  identically, in the Postgres `rules` table (V0007, verified/safety/superseded_by columns added
+  V0008) plus a Chroma `talos-rules-{board}` collection (`hnsw:space: cosine`) for semantic
+  retrieval. There is no separate Graphiti-triplet path for factual/procedural in v1.
+- **Contradiction handling** replaces Graphiti's native bi-temporal model with a deterministic
+  heuristic available from Postgres + Chroma alone: same `rule_type` AND (identical normalized
+  content OR Chroma cosine distance < 0.15 against the existing rule's embedding), excluding
+  rows inserted earlier in the same crystallize run. A contradiction against an existing row with
+  `superseded_by IS NULL` and `verified=false AND safety=false` auto-supersedes
+  (`UPDATE rules SET superseded_by = <new_id>`, no gate) — the "routine" path this ADR already
+  authorized. A contradiction against a `verified=true` OR `safety=true` row does **not**
+  auto-supersede; it creates a review task (`talos_origin: "rule_contradiction_review"`,
+  `talos/crystallize.py`) that flows through the same gate/critic/human-approval pipeline as
+  `/promote_rule` — including a dedicated `deliverable_node` branch
+  (`build_contradiction_review_deliverable`) that shows the reviewer both the existing rule and
+  the proposed replacement side by side. Only a subsequent `approve` outcome sets
+  `superseded_by`. This preserves this ADR's "verified/safety edge writes route to the gate"
+  requirement without Graphiti.
+- **Dedup key and gate boundaries are unchanged**: `dedup_key = hash(board_id + task_id +
+  crystallize_run_id + rule_content)` still gates every insert via `rule_ingestion_log` before
+  any `rules` row is written; cross-client/cross-scope autonomous promotion is still forbidden;
+  promotion to `[shared]` still requires the existing `/promote_rule` + RT-06 gate (untouched by
+  P5). `crystallize_run_id` is derived deterministically as `f"{task_id}:{run_id}"` (not a fresh
+  UUID per call), so a replayed `on_task_approved` hook produces the same dedup keys and cannot
+  re-insert.
+- **Retrieval** is implemented as a 4th branch (`read_branch_rules`) in the spine's read fan-out
+  (`talos/graph/spine.py`), querying the Chroma rules collection with the task body, `k` from
+  `talos.toml [memory] retrieval_k` (default 5). Retrieved rules are labeled with `rule_type`,
+  `verified`, and age (`created_at`) and carry a header (`RULE_CONTEXT_HEADER`) stating unverified
+  memory is a suggestion, not an instruction. There is no execution-stage LLM prompt in the spine
+  yet to consume this context live — `rule_context` is staged as a `SpineState` field for a
+  future execution step to read.
+- **Extraction is sequential**, not fanned out in parallel — there is no write-side reducer to
+  prove commutative. What `talos/tests/test_p5_fanout.py` proves order-independent is the final
+  live-content set of the dedup/contradiction candidate pipeline.
+- **Budget accounting**: extraction fires post-gate, detached from the spine's per-task budget
+  reducer channel — spend is observable via `call_model`'s `llm.call` span, but there is no
+  post-gate per-task budget cap enforcement for extraction calls.

@@ -420,11 +420,20 @@ P4-Memory (Postgres + Chroma in v1; Neo4j + Redis deferred)
   │   auto-dispatches a remediation task with a shortened (advisory non-safety-critic) gate
   └── [Post-v1] Neo4j episodic graph + Redis hot cache
 
-P5-Crystallize
-  ├── Automatic post-approval trigger
-  ├── Three-type rule extraction: factual / procedural / project-context (ADR-023)
-  ├── Chroma semantic retrieval at task start
-  └── Commutative reducers for parallel crystallize fan-out
+P5-Crystallize (closed)
+  ├── [x] Automatic post-approval trigger (on_task_approved, skips any
+  │   task_origin-marked task — rule_promotion / rule_contradiction_review /
+  │   milestone_remediation — to avoid re-crystallizing derived tasks)
+  ├── [x] Three-type rule extraction: factual / procedural / project-context
+  │   (ADR-023 amendment: Postgres + Chroma only, no Graphiti in v1); dedup via
+  │   rule_ingestion_log; contradiction handling via superseded_by +
+  │   verified/safety-gated review task (new origin marker, reuses
+  │   /promote_rule's gate pipeline + a dedicated deliverable_node branch)
+  ├── [x] Chroma talos-rules-{board} namespace + 4th spine read branch
+  │   (read_branch_rules), retrieval_k configurable via talos.toml [memory]
+  └── [x] Sequential-for-simplicity extraction (no write-side fan-out);
+      order-independence proven on the dedup/contradiction candidate set
+      (talos/tests/test_p5_fanout.py), not a LangGraph reducer
 
 P6-Sim (scope TBD for v1)
   └── Rockwell-based PLC emulator via pylogix; custom library evaluation underway
