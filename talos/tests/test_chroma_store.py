@@ -233,3 +233,68 @@ def test_cloud_provider_not_silently_reachable(monkeypatch):
     )
     with pytest.raises(NotImplementedError):
         chroma_store._get_embedding_function()
+
+
+# ---------------------------------------------------------------------------
+# Rules collection (P5) — separate namespace from the docs collection above
+# ---------------------------------------------------------------------------
+
+def test_rules_collection_name_distinct_from_docs_collection():
+    board_id = "acme"
+    assert chroma_store._rules_collection_name(board_id) != chroma_store._collection_name(board_id)
+    assert chroma_store._rules_collection_name(board_id) == "talos-rules-acme"
+    assert chroma_store._collection_name(board_id) == "talos-board-acme"
+
+
+def test_upsert_rule_and_query_rules_board_isolation(fake_embedder, tmp_chroma_dir):
+    board_a = f"board-a-{uuid.uuid4().hex[:8]}"
+    board_b = f"board-b-{uuid.uuid4().hex[:8]}"
+
+    chroma_store.upsert_rule(
+        board_a, "rule-a-1", "widgets are assembled on line 3",
+        {"rule_type": "factual", "verified": False, "safety": False, "status": "approved_client", "created_at": "2026-07-06T00:00:00", "source_task_id": "task-a"},
+    )
+    chroma_store.upsert_rule(
+        board_b, "rule-b-1", "gadgets are assembled on line 5",
+        {"rule_type": "factual", "verified": False, "safety": False, "status": "approved_client", "created_at": "2026-07-06T00:00:00", "source_task_id": "task-b"},
+    )
+
+    results_a = chroma_store.query_rules(board_a, "widgets", k=5)
+    results_b = chroma_store.query_rules(board_b, "widgets", k=5)
+
+    assert len(results_a) >= 1
+    assert all(r["id"] == "rule-a-1" for r in results_a)
+    # board B's collection never contains board A's rules either.
+    assert all(r["id"] != "rule-a-1" for r in results_b)
+
+
+def test_upsert_rule_metadata_roundtrips(fake_embedder, tmp_chroma_dir):
+    board_id = f"board-{uuid.uuid4().hex[:8]}"
+    metadata = {
+        "rule_type": "procedural", "verified": True, "safety": False,
+        "status": "approved_client", "created_at": "2026-07-06T00:00:00",
+        "source_task_id": "task-x",
+    }
+    chroma_store.upsert_rule(board_id, "rule-x", "always verify interlock Z", metadata)
+
+    results = chroma_store.query_rules(board_id, "interlock", k=5)
+    assert len(results) == 1
+    assert results[0]["document"] == "always verify interlock Z"
+    assert results[0]["metadata"]["rule_type"] == "procedural"
+    assert results[0]["metadata"]["verified"] is True
+
+
+def test_query_rules_where_filters_by_rule_type(fake_embedder, tmp_chroma_dir):
+    board_id = f"board-{uuid.uuid4().hex[:8]}"
+    chroma_store.upsert_rule(
+        board_id, "rule-fact", "a factual statement",
+        {"rule_type": "factual", "verified": False, "safety": False, "status": "approved_client", "created_at": "x", "source_task_id": "t"},
+    )
+    chroma_store.upsert_rule(
+        board_id, "rule-proc", "a procedural statement",
+        {"rule_type": "procedural", "verified": False, "safety": False, "status": "approved_client", "created_at": "x", "source_task_id": "t"},
+    )
+
+    results = chroma_store.query_rules(board_id, "statement", k=5, where={"rule_type": "factual"})
+    assert len(results) == 1
+    assert results[0]["id"] == "rule-fact"

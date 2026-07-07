@@ -40,6 +40,8 @@ async def _lifespan(app):
     register_ingest_hook()
     from talos.rule_promotion import register_rule_promotion_hook
     register_rule_promotion_hook()
+    from talos.crystallize import register_crystallize_hooks
+    register_crystallize_hooks()
     yield
 
 

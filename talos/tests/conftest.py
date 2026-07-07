@@ -217,6 +217,12 @@ def pg_setup(pg_container):
     """)
     cur.execute("ALTER TABLE rule_ingestion_log FORCE ROW LEVEL SECURITY")
 
+    # Apply V0008 content directly (verified/safety/superseded_by columns on
+    # rules -- P5-Crystallize contradiction handling).
+    cur.execute("ALTER TABLE rules ADD COLUMN verified BOOLEAN NOT NULL DEFAULT false")
+    cur.execute("ALTER TABLE rules ADD COLUMN safety BOOLEAN NOT NULL DEFAULT false")
+    cur.execute("ALTER TABLE rules ADD COLUMN superseded_by TEXT REFERENCES rules(id)")
+
     # Create talos_app as NOSUPERUSER so RLS applies to it.
     # The table owner (postgres) bypasses RLS; talos_app does not.
     cur.execute(

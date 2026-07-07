@@ -42,6 +42,13 @@ def _collection_name(board_id: str) -> str:
     return f"talos-board-{sanitized}"
 
 
+def _rules_collection_name(board_id: str) -> str:
+    # Separate collection namespace from the docs collection above (P5) --
+    # rules and deliverable chunks are never mixed in one collection.
+    sanitized = re.sub(r"[^a-zA-Z0-9_-]", "_", board_id)
+    return f"talos-rules-{sanitized}"
+
+
 def _get_client():
     import chromadb
 
@@ -168,6 +175,47 @@ def query(board_id: str, text: str, k: int = 5) -> list[dict]:
         embedding_function=_get_embedding_function(),
     )
     result = collection.query(query_texts=[text], n_results=k)
+
+    documents = (result.get("documents") or [[]])[0]
+    metadatas = (result.get("metadatas") or [[]])[0]
+    distances = (result.get("distances") or [[]])[0]
+    ids = (result.get("ids") or [[]])[0]
+    return [
+        {"id": i, "document": d, "metadata": m, "distance": dist}
+        for i, d, m, dist in zip(ids, documents, metadatas, distances)
+    ]
+
+
+def _get_rules_collection(client, board_id: str):
+    # hnsw:space explicit as cosine -- Chroma's collection default is L2, and
+    # talos.crystallize's contradiction heuristic reasons in terms of a
+    # cosine-distance threshold. Only set at creation time; this is a no-op
+    # metadata request on an already-existing collection (Chroma keeps the
+    # space a collection was created with).
+    return client.get_or_create_collection(
+        name=_rules_collection_name(board_id),
+        embedding_function=_get_embedding_function(),
+        metadata={"hnsw:space": "cosine"},
+    )
+
+
+def upsert_rule(board_id: str, rule_id: str, content: str, metadata: dict) -> None:
+    """Embed one rule into the board's rules_{board} collection (P5).
+
+    metadata should carry rule_type, verified, safety, status, created_at
+    (ISO string), and source_task_id -- read_branch_rules/format_rules_context
+    and the contradiction heuristic both depend on these being present."""
+    client = _get_client()
+    collection = _get_rules_collection(client, board_id)
+    collection.upsert(ids=[rule_id], documents=[content], metadatas=[metadata])
+
+
+def query_rules(board_id: str, text: str, k: int = 5, where: dict | None = None) -> list[dict]:
+    """Scoped semantic retrieval over the rules collection (P5). Same reshape
+    as query() above, against rules_{board} instead of docs_{board}."""
+    client = _get_client()
+    collection = _get_rules_collection(client, board_id)
+    result = collection.query(query_texts=[text], n_results=k, where=where)
 
     documents = (result.get("documents") or [[]])[0]
     metadatas = (result.get("metadatas") or [[]])[0]
