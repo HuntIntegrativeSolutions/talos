@@ -298,6 +298,44 @@ def test_contradiction_review_hook_ignores_non_approve_and_other_origins(pg_setu
 
 
 # ---------------------------------------------------------------------------
+# End-to-end: real gate approve -> post_gate_node -> on_task_approved fires
+# crystallize._on_task_approved -> rules land in the table. Mirrors
+# test_chroma_store.py::test_approve_triggers_ingest exactly, so the
+# post_gate_node hook payload contract (board_id/task_id/run_id/outcome) is
+# verified against the real consumer, not just hand-built payloads.
+# ---------------------------------------------------------------------------
+
+def test_approve_triggers_crystallize_extraction_end_to_end(pg_setup, admin_conn, test_graph, monkeypatch):
+    from langgraph.types import Command
+    from talos.worker import claim_and_run
+    from talos import hooks as hooks_module
+    from talos.hooks import HookRegistry
+
+    monkeypatch.setenv("TALOS_NEXUS_STUB", "1")
+    board_id, task_id = _uid("board"), _uid("task")
+    _seed_board(admin_conn, board_id)
+    _seed_task(admin_conn, board_id, task_id)
+
+    test_registry = HookRegistry()
+    test_registry.register("on_task_approved", crystallize._on_task_approved)
+    test_registry.register("on_task_approved", crystallize._on_contradiction_review_approved)
+
+    session_key = claim_and_run(board_id, task_id, graph=test_graph)
+
+    with monkeypatch.context() as m:
+        m.setattr(hooks_module, "default_registry", test_registry)
+        test_graph.invoke(
+            Command(resume={"outcome": "approve", "approved_by": "test-human"}),
+            config={"configurable": {"thread_id": session_key}},
+        )
+
+    rows = _rules_for_board(admin_conn, board_id)
+    assert len(rows) == 3
+    assert {r["rule_type"] for r in rows} == set(crystallize._RULE_TYPES)
+    assert all(r["client_scope"] == "client" and r["status"] == "approved_client" for r in rows)
+
+
+# ---------------------------------------------------------------------------
 # deliverable_node's rule_contradiction_review branch (not a generic scaffold)
 # ---------------------------------------------------------------------------
 

@@ -195,3 +195,8 @@ without weakening the boundaries this ADR established:
 - **Budget accounting**: extraction fires post-gate, detached from the spine's per-task budget
   reducer channel — spend is observable via `call_model`'s `llm.call` span, but there is no
   post-gate per-task budget cap enforcement for extraction calls.
+- **Known limitation**: only the exact-normalized-content arm of the contradiction heuristic has
+  test coverage. CI has no real embedding model loaded, so the Chroma cosine-distance arm is
+  exercised by no test and always degrades to "no match" in the test environment — semantic
+  (non-exact-duplicate) contradiction detection is unproven in v1; only literal-duplicate
+  detection is verified.

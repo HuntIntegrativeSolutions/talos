@@ -133,6 +133,14 @@ def _find_contradiction(cur, board_id: str, rule_type: str, content: str, exclud
     The Chroma arm degrades defensively: if the embedding model/store is
     unavailable, log and fall back to the exact-normalized-content arm only
     — never abort the enclosing Postgres transaction over a Chroma failure.
+
+    KNOWN LIMITATION: only the exact-normalized-content arm has test coverage
+    (talos/tests/test_p5_extraction.py, test_p5_fanout.py). The cosine-distance
+    arm is exercised by no test — CI has no real embedding model loaded, so any
+    test that reaches this arm would degrade to None via the except block
+    below rather than exercising the actual distance comparison. Semantic
+    (non-exact-duplicate) contradiction detection is therefore unproven in v1;
+    only literal-duplicate contradiction detection is verified.
     """
     normalized = _normalize_content(content)
     exclude_ids = exclude_rule_ids or []
