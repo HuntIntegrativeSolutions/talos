@@ -255,6 +255,7 @@ def claim_and_run(board_id: str, task_id: str, graph=None, initial_budget=None) 
         "context_branches": {},
         "chroma_chunks": [],
         "nexus_supplemental": [],
+        "rule_context": [],
     }
 
     from talos.spans import SpanContext, emit_span

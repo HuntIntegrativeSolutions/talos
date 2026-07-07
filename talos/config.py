@@ -73,9 +73,10 @@ def _load_toml_models() -> dict[str, str]:
 
 _TOML_MODELS: dict[str, str] = _load_toml_models()
 
-_MEMORY_DEFAULTS: dict[str, str] = {
+_MEMORY_DEFAULTS: dict[str, object] = {
     "embedding_provider": "local",
     "embedding_model": "sentence-transformers/all-MiniLM-L6-v2",
+    "retrieval_k": 5,
 }
 
 
@@ -93,8 +94,10 @@ def _load_toml_memory() -> dict[str, str]:
         return {}
 
 
-def get_memory_config() -> dict[str, str]:
-    """Returns {embedding_provider, embedding_model}, talos.toml [memory] over defaults."""
+def get_memory_config() -> dict[str, object]:
+    """Returns {embedding_provider, embedding_model, retrieval_k}, talos.toml
+    [memory] over defaults. retrieval_k (P5) is the default k for the spine's
+    rules read branch (talos.graph.spine.read_branch_rules)."""
     return {**_MEMORY_DEFAULTS, **_load_toml_memory()}
 
 

@@ -1,7 +1,9 @@
 """
 P4b — commutative/associative reducer proofs (RT-21 / DoD #3) and the
-3-branch read fan-out (dispatch_reads -> read_node | read_branch_nexus_secondary
-| read_branch_chroma -> merge_node).
+read fan-out (dispatch_reads -> read_node | read_branch_nexus_secondary |
+read_branch_chroma | read_branch_rules -> merge_node). The 4th branch
+(read_branch_rules) was added in P5 -- see talos/tests/test_p5_retrieval.py
+for its own degradation/labeling tests.
 """
 from __future__ import annotations
 
@@ -184,14 +186,14 @@ def test_three_branch_order_independence_integration():
 # dispatch_reads — 3 Send objects under stub mode
 # ---------------------------------------------------------------------------
 
-def test_dispatch_reads_returns_three_sends(monkeypatch):
+def test_dispatch_reads_returns_four_sends(monkeypatch):
     monkeypatch.setenv("TALOS_NEXUS_STUB", "1")
     state = {"board_id": "b", "task_id": "t", "run_id": 0, "task_body": None}
     sends = dispatch_reads(state)
-    assert len(sends) == 3
+    assert len(sends) == 4
     assert all(isinstance(s, Send) for s in sends)
     assert {s.node for s in sends} == {
-        "read_node", "read_branch_nexus_secondary", "read_branch_chroma",
+        "read_node", "read_branch_nexus_secondary", "read_branch_chroma", "read_branch_rules",
     }
 
 
@@ -246,6 +248,7 @@ def test_full_graph_invoke_stub_mode_end_to_end(pg_setup, admin_conn, monkeypatc
         "context_branches": {},
         "chroma_chunks": [],
         "nexus_supplemental": [],
+        "rule_context": [],
     }
 
     graph.invoke(initial_state, config={"configurable": {"thread_id": f"thread-{task_id}"}})
@@ -255,8 +258,8 @@ def test_full_graph_invoke_stub_mode_end_to_end(pg_setup, admin_conn, monkeypatc
 
     assert state["nexus_result"] == {"tag": "MOCK_TAG", "status": "confirmed"}
     assert state["deliverable"]["citations"][0]["status"] == "confirmed"
-    assert state["budget"]["tool_calls"] == 3, (
-        f"expected all 3 branches' deltas summed, got {state['budget']}"
+    assert state["budget"]["tool_calls"] == 4, (
+        f"expected all 4 branches' deltas summed, got {state['budget']}"
     )
     assert state["sdk_session_ids"]["read_node"] == "stub-session-id"
     assert state["sdk_session_ids"]["nexus_secondary"] == "stub-session-id-secondary"
