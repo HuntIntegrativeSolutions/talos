@@ -253,6 +253,69 @@ def test_contradicting_verified_or_safety_rule_creates_review_task_not_supersede
     assert review_task["status"] == "ready"
 
 
+def _fake_bagofwords_embed(texts: list[str]) -> list[list[float]]:
+    """Deterministic 384-dim bag-of-words hashing embedder: texts sharing many
+    words land close together (low cosine distance), unrelated texts land far
+    apart. Used only to exercise _find_contradiction's semantic (non-exact-
+    match) arm in CI -- previously untested because no real embedding model
+    is loaded (see _find_contradiction's docstring). chunks.embedding is
+    vector(384) NOT NULL, so this must match that dimension exactly."""
+    import hashlib
+    import re
+
+    vecs = []
+    for t in texts:
+        words = re.findall(r"[a-z0-9]+", t.lower())
+        vec = [0.0] * 384
+        for w in words:
+            idx = int(hashlib.sha256(w.encode()).hexdigest(), 16) % 384
+            vec[idx] += 1.0
+        norm = sum(x * x for x in vec) ** 0.5 or 1.0
+        vecs.append([x / norm for x in vec])
+    return vecs
+
+
+def test_contradicting_semantically_similar_rule_auto_supersedes(pg_setup, admin_conn, monkeypatch):
+    """Exercises _find_contradiction's semantic (pgvector cosine-distance) arm,
+    not just the exact-normalized-content arm every other contradiction test
+    covers. The old and new rule content differ (so the exact-match arm
+    misses them) but share almost every word (so a real embedding model --
+    faked here deterministically -- would place them well under
+    _CONTRADICTION_COSINE_THRESHOLD)."""
+    from talos.memory import pgvector_store
+
+    monkeypatch.setattr("talos.memory.embedding.get_embed_fn", lambda: _fake_bagofwords_embed)
+
+    board_id, task_id = _uid("board"), _uid("task")
+    _seed_board(admin_conn, board_id)
+    _seed_task(admin_conn, board_id, task_id)
+
+    old_rule_id = f"rule-{uuid.uuid4().hex[:12]}"
+    old_content = "Always verify interlock Z before adjusting a setpoint on equipment type X"
+    _seed_rule(admin_conn, board_id, old_rule_id, "procedural", old_content, verified=False, safety=False)
+    # Embed the pre-existing rule as crystallize._on_task_approved would have
+    # done when it was first extracted -- _find_contradiction's semantic arm
+    # only ever sees previously-embedded rules.
+    pgvector_store.upsert_rule(
+        board_id, old_rule_id, old_content,
+        {"rule_type": "procedural", "verified": False, "safety": False,
+         "status": "approved_client", "created_at": "2026-07-01T00:00:00", "source_task_id": "task-old"},
+    )
+
+    new_content = "Always verify interlock Z before modifying a setpoint on equipment type X"
+    fixed_output = json.dumps([{"rule_type": "procedural", "content": new_content}])
+    monkeypatch.setattr(crystallize, "_call_extraction_llm", lambda *a, **k: fixed_output)
+
+    inserted = crystallize.extract_rules(board_id, task_id, 0, {"summary": "x"})
+    assert len(inserted) == 1
+    new_rule_id = inserted[0]["id"]
+
+    with admin_conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        cur.execute("SELECT superseded_by FROM rules WHERE id = %s", (old_rule_id,))
+        old_row = dict(cur.fetchone())
+    assert old_row["superseded_by"] == new_rule_id
+
+
 def test_contradiction_review_task_approve_sets_superseded_by(pg_setup, admin_conn):
     board_id, task_id = _uid("board"), _uid("task")
     _seed_board(admin_conn, board_id)

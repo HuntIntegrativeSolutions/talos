@@ -26,46 +26,8 @@ from talos.memory import chroma_store
 
 
 # ---------------------------------------------------------------------------
-# Chunking
+# Chunking tests live in test_chunking.py (backend-agnostic, ADR-039 #3)
 # ---------------------------------------------------------------------------
-
-def test_chunk_by_heading_splits_on_headings():
-    markdown = "# Title\nintro text\n\n## Section A\ncontent A\n\n## Section B\ncontent B\n"
-    chunks = chroma_store.chunk_by_heading(markdown, max_tokens=500)
-    assert len(chunks) == 3
-    assert chunks[0].startswith("# Title")
-    assert chunks[1].startswith("## Section A")
-    assert chunks[2].startswith("## Section B")
-
-
-def test_chunk_by_heading_no_headings_returns_single_chunk():
-    markdown = "just plain text with no headings at all"
-    chunks = chroma_store.chunk_by_heading(markdown, max_tokens=500)
-    assert chunks == [markdown]
-
-
-def test_chunk_by_heading_empty_returns_no_chunks():
-    assert chroma_store.chunk_by_heading("", max_tokens=500) == []
-    assert chroma_store.chunk_by_heading("   \n  ", max_tokens=500) == []
-
-
-def test_chunk_by_heading_oversize_fallback_splits_by_paragraph():
-    para_a = "wordA " * 300
-    para_b = "wordB " * 300
-    markdown = f"# Big Section\n{para_a}\n\n{para_b}"
-    chunks = chroma_store.chunk_by_heading(markdown, max_tokens=100)
-    assert len(chunks) > 1
-    for c in chunks:
-        assert len(c.split()) <= 350  # roughly bounded, allows heading overhead
-
-
-def test_chunk_by_heading_oversize_no_paragraphs_splits_by_word_count():
-    markdown = "# H\n" + " ".join(f"w{i}" for i in range(1000))
-    chunks = chroma_store.chunk_by_heading(markdown, max_tokens=200)
-    assert len(chunks) > 1
-    for c in chunks:
-        assert len(c.split()) <= 201  # +1 for the heading token
-
 
 # ---------------------------------------------------------------------------
 # Board isolation (mocked embedding function — deterministic per input text)

@@ -31,7 +31,7 @@ def test_read_branch_rules_degrades_to_empty_on_query_failure(monkeypatch):
     def _raise(*a, **k):
         raise RuntimeError("no embedding model cached")
 
-    monkeypatch.setattr("talos.memory.chroma_store.query_rules", _raise)
+    monkeypatch.setattr("talos.memory.pgvector_store.query_rules", _raise)
     state = {"board_id": "b", "task_id": "t", "run_id": 0, "task_body": None}
     result = read_branch_rules(state)
     assert result["context_branches"] == {"rules": {"rules": []}}
@@ -45,7 +45,7 @@ def test_read_branch_rules_uses_configured_k(monkeypatch):
         captured["k"] = k
         return []
 
-    monkeypatch.setattr("talos.memory.chroma_store.query_rules", _fake_query_rules)
+    monkeypatch.setattr("talos.memory.pgvector_store.query_rules", _fake_query_rules)
     monkeypatch.setattr("talos.config.get_memory_config", lambda: {"retrieval_k": 7})
     state = {"board_id": "b", "task_id": "t", "run_id": 0, "task_body": "task body text"}
     read_branch_rules(state)

@@ -160,11 +160,11 @@ def _find_contradiction(cur, board_id: str, rule_type: str, content: str, exclud
             return dict(row)
 
     try:
-        from talos.memory.chroma_store import query_rules
-        matches = query_rules(board_id, content, k=5, where={"rule_type": rule_type})
+        from talos.memory import get_store
+        matches = get_store().query_rules(board_id, content, k=5, where={"rule_type": rule_type})
     except Exception:
         log.warning(
-            "crystallize: contradiction Chroma query failed for board_id=%s; "
+            "crystallize: contradiction semantic query failed for board_id=%s; "
             "falling back to exact-match only", board_id,
         )
         return None
@@ -367,14 +367,14 @@ async def _on_task_approved(payload: dict) -> None:
 
         inserted = extract_rules(board_id, task_id, run_id, row["deliverable"])
 
-        # Best-effort, post-commit Chroma embedding -- failure here must
-        # never affect the already-committed rule rows (mirrors
+        # Best-effort, post-commit semantic-store embedding -- failure here
+        # must never affect the already-committed rule rows (mirrors
         # chroma_store._on_task_approved's ingestion-failure isolation).
         for r in inserted:
             try:
-                from talos.memory.chroma_store import upsert_rule
+                from talos.memory import get_store
                 created_at = r["created_at"]
-                upsert_rule(
+                get_store().upsert_rule(
                     board_id, r["id"], r["content"],
                     {
                         "rule_type": r["rule_type"],
@@ -387,7 +387,7 @@ async def _on_task_approved(payload: dict) -> None:
                 )
             except Exception:
                 log.warning(
-                    "crystallize: chroma embed failed for rule_id=%s board_id=%s",
+                    "crystallize: memory-store embed failed for rule_id=%s board_id=%s",
                     r["id"], board_id,
                 )
     except Exception:

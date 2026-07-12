@@ -72,6 +72,12 @@ alembic -c engine/alembic.ini upgrade head
 psql -U postgres -d talos -c "GRANT SELECT, INSERT, UPDATE ON ALL TABLES IN SCHEMA public TO talos_app;"
 psql -U postgres -d talos -c "GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO talos_app;"
 
+# talos_app additionally needs DELETE on chunks: talos.memory.pgvector_store's
+# upsert_rule/ingest_deliverable implement idempotent re-embedding as
+# delete-then-insert scoped by (board_id, rule_id/task_id), since chunks has
+# no external-id column to ON CONFLICT against (ADR-039 action item #3).
+psql -U postgres -d talos -c "GRANT DELETE ON chunks TO talos_app;"
+
 # Grant talos_system access for cross-board reclaim:
 # SELECT on all tables is required so triggers (pm_recompute_scheduling) can read
 # v_critical_path and underlying tables when talos_system updates task status.

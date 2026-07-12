@@ -30,10 +30,9 @@ import re
 
 from chromadb.api.types import EmbeddingFunction
 
-log = logging.getLogger(__name__)
+from talos.memory.chunking import DEFAULT_MAX_TOKENS, chunk_by_heading, _split_oversize
 
-DEFAULT_MAX_TOKENS = 500
-_HEADING_RE = re.compile(r"^#{1,6}\s", re.MULTILINE)
+log = logging.getLogger(__name__)
 
 
 def _collection_name(board_id: str) -> str:
@@ -57,99 +56,22 @@ def _get_client():
 
 
 class _SentenceTransformerEmbeddingFunction(EmbeddingFunction):
-    """Chroma EmbeddingFunction wrapping a local sentence-transformers model."""
+    """Chroma EmbeddingFunction wrapping talos.memory.embedding's shared encode callable."""
 
-    def __init__(self, model):
-        self._model = model
+    def __init__(self, encode_fn):
+        self._encode_fn = encode_fn
 
     def __call__(self, input):  # noqa: A002 — name required by Chroma's protocol
-        return self._model.encode(list(input)).tolist()
+        return self._encode_fn(list(input))
 
     def name(self) -> str:
         return "talos-sentence-transformers"
 
 
 def _get_embedding_function():
-    from talos.config import get_memory_config
+    from talos.memory.embedding import get_embed_fn
 
-    cfg = get_memory_config()
-    provider = cfg["embedding_provider"]
-    model_name = cfg["embedding_model"]
-
-    if provider != "local":
-        raise NotImplementedError(
-            f"embedding_provider={provider!r} is not implemented — only 'local' "
-            "is supported today. A cloud provider must be added explicitly and "
-            "deliberately; it is never reached silently."
-        )
-
-    from sentence_transformers import SentenceTransformer
-
-    try:
-        model = SentenceTransformer(model_name, local_files_only=True)
-    except Exception as exc:
-        cache_dir = os.environ.get(
-            "SENTENCE_TRANSFORMERS_HOME", "~/.cache/torch/sentence_transformers"
-        )
-        raise RuntimeError(
-            f"Local embedding model {model_name!r} is not pre-downloaded and this "
-            f"module will not fetch it silently (air-gap rule, P4a). Pre-download it "
-            f"on a machine with network access and place it under {cache_dir!r} "
-            f"(or set SENTENCE_TRANSFORMERS_HOME to a directory that already has it), "
-            f"or set talos.toml's [memory] embedding_model to a model that is present."
-        ) from exc
-    return _SentenceTransformerEmbeddingFunction(model)
-
-
-def chunk_by_heading(markdown: str, max_tokens: int = DEFAULT_MAX_TOKENS) -> list[str]:
-    """Split on markdown headings; fallback-split any oversize chunk at
-    paragraph boundaries (approximate whitespace-token count, no tokenizer dep)."""
-    if not markdown.strip():
-        return []
-
-    positions = [m.start() for m in _HEADING_RE.finditer(markdown)]
-    if not positions or positions[0] != 0:
-        positions = [0] + positions
-    positions.append(len(markdown))
-
-    sections = [
-        markdown[positions[i]:positions[i + 1]].strip()
-        for i in range(len(positions) - 1)
-    ]
-    sections = [s for s in sections if s]
-
-    chunks: list[str] = []
-    for section in sections:
-        chunks.extend(_split_oversize(section, max_tokens))
-    return chunks
-
-
-def _split_oversize(section: str, max_tokens: int) -> list[str]:
-    words = section.split()
-    if len(words) <= max_tokens:
-        return [section]
-
-    paragraphs = [p for p in section.split("\n\n") if p.strip()]
-    if len(paragraphs) <= 1:
-        # No paragraph breaks to split on — chunk by raw word count.
-        return [
-            " ".join(words[i:i + max_tokens])
-            for i in range(0, len(words), max_tokens)
-        ]
-
-    out: list[str] = []
-    current: list[str] = []
-    current_len = 0
-    for p in paragraphs:
-        p_len = len(p.split())
-        if current and current_len + p_len > max_tokens:
-            out.append("\n\n".join(current))
-            current, current_len = [], 0
-        current.append(p)
-        current_len += p_len
-    if current:
-        out.append("\n\n".join(current))
-    return out
+    return _SentenceTransformerEmbeddingFunction(get_embed_fn())
 
 
 def ingest_deliverable(board_id: str, task_id: str, markdown: str, metadata: dict) -> None:

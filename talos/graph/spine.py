@@ -355,9 +355,9 @@ def read_branch_chroma(state: SpineState) -> dict:
     emit_span(ctx, "spine.node.read_branch_chroma.entry")
 
     try:
-        from talos.memory.chroma_store import query as chroma_query
+        from talos.memory import get_store
         query_text = state.get("task_body") or state["task_id"]
-        chunks = chroma_query(state["board_id"], query_text, k=5)
+        chunks = get_store().query(state["board_id"], query_text, k=5)
     except Exception:
         import logging
         logging.getLogger(__name__).warning(
@@ -388,10 +388,10 @@ def read_branch_rules(state: SpineState) -> dict:
 
     try:
         from talos.config import get_memory_config
-        from talos.memory.chroma_store import query_rules
+        from talos.memory import get_store
         k = get_memory_config()["retrieval_k"]
         query_text = state.get("task_body") or state["task_id"]
-        rules = query_rules(state["board_id"], query_text, k=k)
+        rules = get_store().query_rules(state["board_id"], query_text, k=k)
     except Exception:
         import logging
         logging.getLogger(__name__).warning(

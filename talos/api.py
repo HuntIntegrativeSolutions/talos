@@ -36,8 +36,8 @@ async def _lifespan(app):
     # inside the API process — submit_gate_outcome() resumes the graph past
     # the gate interrupt via Command(resume=...); worker.py's graph.invoke()
     # only ever runs the pre-interrupt portion of the spine (P4a).
-    from talos.memory.chroma_store import register_ingest_hook
-    register_ingest_hook()
+    from talos.memory import get_store
+    get_store().register_ingest_hook()
     from talos.rule_promotion import register_rule_promotion_hook
     register_rule_promotion_hook()
     from talos.crystallize import register_crystallize_hooks

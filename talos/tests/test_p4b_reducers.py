@@ -130,7 +130,7 @@ def test_read_branch_chroma_degrades_to_empty_on_embedding_failure(monkeypatch):
     def _raise(*a, **k):
         raise RuntimeError("no embedding model cached")
 
-    monkeypatch.setattr("talos.memory.chroma_store.query", _raise)
+    monkeypatch.setattr("talos.memory.pgvector_store.query", _raise)
     state = {"board_id": "b", "task_id": "t", "run_id": 0, "task_body": None}
     result = read_branch_chroma(state)
     assert result["context_branches"] == {"chroma": {"chunks": []}}
