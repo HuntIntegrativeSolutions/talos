@@ -77,6 +77,17 @@ _MEMORY_DEFAULTS: dict[str, object] = {
     "embedding_provider": "local",
     "embedding_model": "sentence-transformers/all-MiniLM-L6-v2",
     "retrieval_k": 5,
+    # Must match chunks.embedding's hardcoded vector(384) in
+    # V0009_unified_memory.py (ADR-039) -- migrations are static raw SQL and
+    # can't read talos.toml at migration time, so the two are kept in sync by
+    # convention, not by a shared source.
+    "embedding_dimension": 384,
+    # ADR-039 action item #3: "pgvector" (default) or "chroma". Interim
+    # dual-backend toggle for the Chroma -> pgvector migration; chroma_store.py
+    # and its chromadb/sentence-transformers-adjacent dependency are removed in
+    # a follow-up once pgvector is proven in production (see ADR-039's action
+    # item list).
+    "backend": "pgvector",
 }
 
 
@@ -95,10 +106,82 @@ def _load_toml_memory() -> dict[str, str]:
 
 
 def get_memory_config() -> dict[str, object]:
-    """Returns {embedding_provider, embedding_model, retrieval_k}, talos.toml
-    [memory] over defaults. retrieval_k (P5) is the default k for the spine's
-    rules read branch (talos.graph.spine.read_branch_rules)."""
+    """Returns {embedding_provider, embedding_model, retrieval_k,
+    embedding_dimension, backend}, talos.toml [memory] over defaults.
+    retrieval_k (P5) is the default k for the spine's rules read branch
+    (talos.graph.spine.read_branch_rules)."""
     return {**_MEMORY_DEFAULTS, **_load_toml_memory()}
+
+
+def get_memory_backend() -> str:
+    """'pgvector' (default) or 'chroma' (ADR-039 action item #3 interim
+    toggle). TALOS_MEMORY_BACKEND env var overrides talos.toml [memory]
+    backend, for ops rollback without a config edit."""
+    import os
+
+    return os.environ.get("TALOS_MEMORY_BACKEND") or get_memory_config().get("backend", "pgvector")
+
+
+_RESOURCES_DEFAULTS: dict[str, object] = {
+    # Worker pool size for CPU-bound local work (embedding, index builds) on
+    # the air-gapped single-box deployment target (ADR-039). Defaults to
+    # min(2, cpu_count - 2), floored at 1, so a small box still leaves
+    # headroom for the dispatcher/API rather than saturating all cores.
+    "cpu_workers": max(1, min(2, (os.cpu_count() or 2) - 2)),
+    # Thread count for the local embedding model (P4a's sentence-transformers
+    # path); independent of cpu_workers so embedding batches don't starve
+    # other CPU-bound work.
+    "embed_threads": 2,
+    # pgvector index type for chunks.embedding (ADR-039 action item #5).
+    # "ivfflat" is the CPU-only-friendly default; "hnsw" is opt-in for boxes
+    # with headroom to spare on build time/memory.
+    "index_type": "ivfflat",
+    # Concurrent worker cap for HNSW index builds specifically (HNSW build is
+    # far more CPU/memory-hungry than IVFFlat's; kept separate from
+    # cpu_workers so switching index_type doesn't silently change concurrency
+    # elsewhere).
+    "hnsw_build_workers": 1,
+    # Whether a local (non-Anthropic, non-cloud) LLM driver is available on
+    # this box (ADR-031's Ollama zero-egress path). Gates whether
+    # local-only-eligible ladder steps may resolve to it.
+    "local_llm_enabled": False,
+    # When true, the dispatcher/scheduler must prioritize requests serving the
+    # human review gate (approval path) over long-running analysis work on the
+    # shared LLM endpoint, so an analysis run can never starve an engineer
+    # waiting at the gate (ROADMAP R8; serves the time-to-confident-approval KPI).
+    "gate_path_priority": True,
+    # "HH:MM-HH:MM" local-time window (empty string = disabled) during which
+    # low-priority sleeptime/background work (e.g. index rebuilds) is allowed
+    # to run, so it doesn't compete with interactive ladder steps.
+    "sleeptime_window": "",
+    # Token budget cap for sleeptime/background work per window; 0 = no cap.
+    "sleeptime_max_tokens": 0,
+}
+
+
+def _load_toml_resources() -> dict[str, object]:
+    """talos.toml [resources] section (ADR-039 action item #5) -- CPU/index-
+    build knobs for the air-gapped single-box deployment target.
+    Absent-file/parse-failure handling mirrors _load_toml_models() and
+    _load_toml_memory() exactly."""
+    if not _TOML_PATH.exists():
+        return {}
+    try:
+        with open(_TOML_PATH, "rb") as f:
+            data = tomllib.load(f)
+        return data.get("resources", {})
+    except Exception:
+        log.warning("talos.toml could not be parsed; using hardcoded resources defaults")
+        return {}
+
+
+def get_resources_config() -> dict[str, object]:
+    """Returns {cpu_workers, embed_threads, index_type, hnsw_build_workers,
+    local_llm_enabled, gate_path_priority, sleeptime_window,
+    sleeptime_max_tokens}, talos.toml [resources] over defaults. Not yet
+    consumed by any index-build code -- ADR-039 action item #5 is
+    config-loader-only at this stage."""
+    return {**_RESOURCES_DEFAULTS, **_load_toml_resources()}
 
 
 def resolve_model(

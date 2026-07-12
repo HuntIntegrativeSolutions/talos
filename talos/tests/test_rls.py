@@ -316,3 +316,88 @@ def test_nexus_cache_force_rls_applied(pg_setup, admin_conn):
         row = cur.fetchone()
     assert row is not None, "nexus_cache table not found"
     assert row[0] is True, "nexus_cache missing FORCE ROW LEVEL SECURITY"
+
+
+# ---------------------------------------------------------------------------
+# notes/links/tags/chunks FORCE RLS — self-forced by V0009, not part of
+# V0003's table list (ADR-039 action item #1)
+# ---------------------------------------------------------------------------
+
+_V0009_TABLES = ["notes", "links", "tags", "chunks"]
+
+
+def test_v0009_notes_links_tags_chunks_force_rls_applied(pg_setup, admin_conn):
+    """
+    notes/links/tags/chunks (ADR-039 / P6-memory) postdate V0003 and apply
+    their own FORCE ROW LEVEL SECURITY statements in V0009_unified_memory.py
+    rather than extending V0003's hardcoded _RLS_TABLES list. Verify all four
+    independently, same pattern as test_nexus_cache_force_rls_applied.
+    """
+    with admin_conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT relname
+            FROM pg_class
+            WHERE relname = ANY(%s)
+              AND relkind = 'r'
+              AND relnamespace = (SELECT oid FROM pg_namespace WHERE nspname = 'public')
+              AND NOT relforcerowsecurity
+            ORDER BY relname
+            """,
+            (_V0009_TABLES,),
+        )
+        missing = [row[0] for row in cur.fetchall()]
+    assert not missing, (
+        f"Tables missing FORCE ROW LEVEL SECURITY: {missing}. "
+        "Check V0009 migration and conftest mirror."
+    )
+
+
+# ---------------------------------------------------------------------------
+# notes/chunks cross-board isolation (integration path) — ADR-039
+# ---------------------------------------------------------------------------
+
+def test_notes_chunks_cross_board_isolation(pg_setup, admin_conn, app_conn):
+    """
+    A talos_app connection scoped to board A must see 0 rows from board B in
+    notes and chunks. Proves the board_isolation policy predicate itself is
+    correct, not just that FORCE is set — catches e.g. a mistyped policy
+    predicate that test_v0009_..._force_rls_applied would miss.
+    """
+    board_a = f"rls-a-{uuid.uuid4().hex[:8]}"
+    board_b = f"rls-b-{uuid.uuid4().hex[:8]}"
+    note_a = f"n-{uuid.uuid4().hex[:8]}"
+    note_b = f"n-{uuid.uuid4().hex[:8]}"
+
+    _seed_board(admin_conn, board_a)
+    _seed_board(admin_conn, board_b)
+
+    with admin_conn.cursor() as cur:
+        for board_id, note_id in ((board_a, note_a), (board_b, note_b)):
+            cur.execute(
+                """
+                INSERT INTO notes (id, board_id, path, title, content_hash, mtime)
+                VALUES (%s, %s, %s, %s, 'deadbeef', now())
+                """,
+                (note_id, board_id, f"{note_id}.md", note_id),
+            )
+            cur.execute(
+                """
+                INSERT INTO chunks (board_id, note_id, source, chunk_text, embedding)
+                VALUES (%s, %s, 'vault', 'text', %s)
+                """,
+                (board_id, note_id, "[" + ",".join(["0"] * 384) + "]"),
+            )
+    admin_conn.commit()
+
+    # Scope to board A — board B's rows must be invisible.
+    with app_conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        cur.execute("SET LOCAL app.board_id = %s", (board_a,))
+
+        cur.execute("SELECT COUNT(*) AS cnt FROM notes WHERE board_id = %s", (board_b,))
+        assert cur.fetchone()["cnt"] == 0, "notes: board B visible when scoped to board A"
+
+        cur.execute("SELECT COUNT(*) AS cnt FROM chunks WHERE board_id = %s", (board_b,))
+        assert cur.fetchone()["cnt"] == 0, "chunks: board B visible when scoped to board A"
+
+    app_conn.rollback()  # reset SET LOCAL

@@ -20,7 +20,7 @@ These things are decided, documented, and do not need revisiting.
   `talos-emblem.png`, `talos-sticker.png`.
 - **License:** MIT © Hunt Integrative Solutions LLC.
 
-### Design decisions (BLUEPRINT.md v0.6)
+### Design decisions (BLUEPRINT.md v0.7)
 Everything in BLUEPRINT.md is settled at the design level:
 - TALOS is a **project-execution platform**, not an accounting tool. PM is the spine.
 - **The Guardian doctrine** — AI proposes, humans review, critics gate, nothing reaches a live
@@ -28,14 +28,16 @@ Everything in BLUEPRINT.md is settled at the design level:
 - The **Strategy Ladder** (triage → research → plan relay → gated plan → execute → crystallize).
 - The **five gate outcomes** (Approve / Reject / Waive / Edit / Escalate; safety critics escalate-only).
 - The **cockpit's KPI**: time-to-confident-approval.
-- The **four-store memory** (Postgres, Neo4j, vector, Redis) federated to the NEXUS graph.
+- ~~The four-store memory (Postgres, Neo4j, vector, Redis)~~ → **unified Postgres + markdown
+  vault** (ADR-039 supersedes ADR-003; pgvector replaces Chroma, Neo4j/Redis cancelled),
+  still federated to the NEXUS graph.
 - **Hub-and-spoke deployment**: mothership + thin/thick edges per client. Acme = thick.
 - **NEXUS is propose-only ICS analysis** behind MCP. Never "device gateway." Never live writes.
 - The **five foundational mechanisms** (layered policy, session-key isolation, structured worker
   results, scope/safety-gated consolidation, PageRank-seeded graph context).
 
 ### Artifacts in this repo
-- `BLUEPRINT.md` v0.6 — the living design doc (authoritative over all other docs when they conflict)
+- `BLUEPRINT.md` v0.7 — the living design doc (authoritative over all other docs when they conflict)
 - `docs/ARCHITECTURE.md` — stable public-facing summary (regenerate from BLUEPRINT when they drift)
 - `docs/decisions/ADR-001` — platform-not-merge
 - `docs/decisions/ADR-002` — board-as-Space
@@ -435,8 +437,21 @@ P5-Crystallize (closed)
       order-independence proven on the dedup/contradiction candidate set
       (talos/tests/test_p5_fanout.py), not a LangGraph reducer
 
-P6-Sim (scope TBD for v1)
-  └── Rockwell-based PLC emulator via pylogix; custom library evaluation underway
+P5.5-LoopHardening (from 2026-07-12 harness/loop-engineering review — do before P6)
+  ├── Enforce max_elapsed_seconds + max_spend_usd in the read path (only max_tokens is
+  │   faithful today; max_tool_calls counts model invocations, not MCP tool calls).
+  │   Prerequisite for any automated revise loop — "loop until pass" is only safe when
+  │   bounded by attempts/time/cost.
+  ├── Bounded critic-fail → revise → re-run loop inside deliverable_node (max 2 iterations,
+  │   then escalate to gate as today). Directly improves time-to-confident-approval:
+  │   humans stop reviewing deliverables a deterministic critic already failed.
+  └── Wire retrieved rule_context into the deliverable/generation prompt (retrieved today
+      but consumed by nothing — completes the crystallize flywheel end-to-end)
+
+P6-Sim (scoped 2026-07-12: build the FIRST VERIFIER CRITIC, per ADR-021 — zero registered today)
+  └── Rockwell-based PLC emulator via pylogix; custom library evaluation underway.
+      Emulator/OpenPLC results land as verifier-critic evidence rows at the gate, not just
+      artifacts — first critic meeting the "full-pipeline verification" bar
 
 P7a-MinimalGateUI (v1, built alongside P0 JWT auth) ✓
   ├── Thin web page: Markdown artifact preview + critic verdicts + five gate outcome buttons ✓
@@ -450,13 +465,120 @@ P7a-MinimalGateUI (v1, built alongside P0 JWT auth) ✓
 P7b-FullCockpit (v1.x, sequential after P5/P6)
   └── Full Space Agent web cockpit: spaces, widgets, time-travel, Gantt, event stream
 
-P8-Gateway
+P8-Gateway (HARD PREREQUISITES: ADR-033 runtime tool-policy interception — currently
+  doctrine-only; guarantee today rests on attach-time manifest validation + post-hoc critic —
+  AND quarantine enforcement: any loop reading untrusted/external content must not hold
+  privileged tools. No climb up the delegation ladder (goal → time-based → proactive)
+  without in-loop interception.)
   └── One proactive loop: documentation freshness check (propose-only, never auto-approve)
 ```
 
+**Harness/loop-engineering review findings (2026-07-12, vault research vs codebase):**
+
+Verdict: the safety spine (MCP boundary, deterministic critics, non-waivable safety gates,
+human `interrupt()` gate, RLS, append-only events, gated crystallize) matches or exceeds the
+research — no rework. The adaptivity half is largely on paper. Ranked gaps and where they land:
+
+1. **The loop has no loop** — spine is a fixed single pass (read → deliverable → gate); a
+   critic failure goes straight to the human. → P5.5 bounded revise loop. Full Strategy
+   Ladder (ADR-006 evaluator, plan relay, triage) stays post-v1.
+2. **Zero verifier critics registered** (ADR-021 defined, unimplemented). → P6 scope.
+3. **Budget enforcement partly unfaithful** (only max_tokens real). → P5.5 first item.
+4. **ADR-033 runtime interception + quarantine unbuilt**; Anthropic SDK MCP dispatch is
+   opaque mid-call. → P8 hard prerequisite.
+5. **Retrieved memory never feeds generation** (rule_context unconsumed). → P5.5 last item.
+6. **Repo fails its own Fresh Session Test** — stale README (points at nonexistent
+   `platform/`), ADR index covers 17 of 40 files (duplicate ADR-010/011 numbers), no
+   red-team status view. Per the research this is a harness defect, not housekeeping.
+   → Docs-hygiene pass, cheap, do alongside P5.5. Also pre-external-user: U1 manifest
+   signing (content-hashed but unsigned), U3 re-dispatch suppression (reclaim has no
+   failure-class predicates — nothing stops re-dispatching a repeatedly-failing task).
+
+Anti-scope (claim-audit brakes): don't restructure around the loop-pattern catalog — it's
+packaging, not standards; keep the structural no-loop list (no autonomous safety-logic
+edits, controller writes, live OT scans, customer sends) as autonomy grows.
+
+**Research recommendations (2026-07-12 deep-research pass — all CPU-only verified on the
+reference box: 4-core i5-6500, 16 GB, no GPU):**
+
+R1. **Knowledge-layer ADR — own the vault, all-in-Postgres.** Markdown vault stays
+   human-facing truth (Obsidian-compatible, no lock-in); Python indexer (file-watcher +
+   frontmatter/wikilink parse, obsidiantools-style) projects into PG tables
+   `notes/links/tags/chunks` under board_id RLS. **pgvector replaces Chroma** (one fewer
+   service; vectors under RLS, joinable to rules/NEXUS entities). Graph queries: recursive
+   CTEs over `links` first; **Apache AGE** (Cypher-in-Postgres) as the upgrade path with
+   Graphiti-style bi-temporal edge columns (valid_from/valid_until/ingested_at). Seed NEXUS
+   entities as graph nodes via known-fact injection (zero LLM calls). **Cancel Neo4j + Redis
+   permanently** (supersedes "deferred post-v1"; Kuzu is archived — eliminated). LightRAG's
+   PG+AGE+pgvector backend = reference code. Backup = pg_dump + rsync of vault.
+   CPU: indexer/CTEs trivial; HNSW builds are the only heavy op — cap via [resources] knobs
+   or use IVFFlat at small scale; embeddings via fastembed/ONNX quantized, thread-capped.
+   → Do BEFORE more memory code accrues (amends P4 deferred items).
+
+R2. **Reasoning-ontology critics.** Encode the five HIS ontology seeds (PLC change impact,
+   safety review, FAT/SAT evidence, OT cyber hygiene, customer discovery — vault
+   30-Knowledge-Base/AI-Engineering/) as deterministic-critic checklists:
+   `[[Safety Logic Change]] [requires] [[MOC evidence]]` = hard gate. Ontologies live as
+   markdown graph statements in the vault (auditable, indexed by R1); analysis local
+   (NetworkX modularity/betweenness — never InfraNodus SaaS for customer data).
+   CPU: trivial. → First ontology (PLC change impact) alongside P6's verifier critic.
+
+R3. **Crystallize v2.** (a) ACE-style typed delta rules merged deterministically — never
+   whole-file LLM rewrites (context collapse); (b) ingest gate REJECTIONS/edits as
+   contrastive signal, not just approvals; (c) every rule ships a regression eval from its
+   originating trajectory (emulator-runnable; un-evaluable = rejection candidate);
+   (d) hook-graduation: repeat-cited rules get flagged for promotion into deterministic
+   critics/allowlists; (e) Hermes-Curator structure (deterministic prune auto-applies;
+   LLM consolidation = dry-run REPORT.md → gate proposal, archive-only, never delete);
+   (f) Hermes background-review sandbox (tool whitelist + auto-deny + persistence
+   isolation) writing to a copy-on-write STAGING store only — gate promotes;
+   (g) run as sleep-time pass (between shifts, budgeted) WITH out-of-band watchdog
+   (Hermes dream-cron had silent "dark days"); (h) session-audit scoring formula
+   (freq×3 + skill_gap×3 + token×2 + error×2 + automation×2) prioritizes proposals.
+   CPU: local-LLM pass is overnight-only on 4 cores (few tok/s) — opt-in, off hot path;
+   API provider fine. → P5 follow-on, after P5.5.
+
+R4. **Tool-retrieval + access-manager audit log.** RAG-MCP: index the 90 manifest tool
+   descriptions in pgvector, inject top-k per step (evidence: 13.6%→43.1% accuracy, half
+   the tokens); minimum-viable tool exposure default per node. Append-only audit log of
+   EVERY tool invocation (who/what/params/decision) — delivers most of ADR-033's value
+   early + the "syscall log" an OT auditor asks for. CPU: trivial. → Pre-ADR-033 work.
+
+R5. **Plan-approval vs action-approval split + quarantine node class.** Approving a plan
+   authorizes a sequence; approving a tool call authorizes a concrete call with exact args
+   (needed before any human_approved_write class). Quarantine = a graph-NODE-TYPE that
+   structurally cannot hold privileged tools (enforced at graph construction, like the
+   manifest validator at attach time). CPU: trivial. → Real P8 prerequisites w/ ADR-033.
+
+R6. **Offline eval bench + GEPA loop.** ~20 real gated deliverables + rubric; periodic
+   offline GEPA/MIPROv2 runs consolidate approved rules into base prompts (gate between
+   candidate and deployed). CPU: rollout-heavy — API provider or overnight local only;
+   optional. → Once ~20 gated deliverables exist.
+
+R7. **New ADR — data-level self-improvement only.** Explicitly exclude self-code-
+   modification (Darwin-Gödel-style), citing DGM's own finding: the agent fabricated
+   tool-use logs and removed detection markers — it forges exactly the evidence the gate
+   inspects. Rules/skills/prompts as diffable, git-versioned text only. Hard rule: exact
+   identifiers (PLC tags, addresses, hashes) travel verbatim or by reference, never
+   through lossy summaries/compression.
+
+R8. **`talos.toml [resources]` section — CPU-scaled limits** (all additions above must
+   honor it): `cpu_workers` (default min(2, nproc-2)), `embed_threads`,
+   `hnsw_build_workers` / `index_type=ivfflat|hnsw`, `sleeptime_window` +
+   `sleeptime_max_tokens` (crystallize pass), `local_llm_enabled=false` (opt-in),
+   `gate_path_priority=true` (approval path never starved by analysis runs — FIFO/RR with
+   per-agent quotas on the single LLM endpoint). Also adopt: interrupt-idempotency audit
+   as graph grows + `durability="sync"` checkpoints (20-50ms, worth the auditability);
+   Letta-style read-only safety memory blocks; rainbow deployments for upgrades;
+   Postgres-only run queue (never Redis). Track **cost-per-approved-deliverable** (budget
+   ledger × gate outcomes) as the FinOps metric. Long-game: unified NEXUS+knowledge graph
+   in one PG enables "which vault notes discuss tags affected by this rung change" —
+   the impact-analysis moat; design R1-R6 so the signed EVIDENCE PACK (task contract +
+   critic verdicts + ontology checklist + regression evals + gate record) falls out free.
+
 **Deferred to post-v1:**
-- Neo4j (NEXUS graph + TALOS episodic graph) — introduced when graph traversal patterns proven
-- Redis (hot task state + pub/sub) — introduced when hot-cache patterns proven
+- ~~Neo4j~~ / ~~Redis~~ — **superseded by R1 (2026-07-12): recommend cancel permanently**;
+  graph = recursive CTEs → Apache AGE in existing Postgres; hot state stays Postgres-only
 - Business-ops capabilities (QuickBooks, Drive, Asana, Gmail, Calendar, MS365)
 - Doc-gen skills as gated TALOS capabilities (fds, soo, io-list, etc.) — v1.x fast-follow
 - Full Space Agent cockpit (P7b) — v1.x

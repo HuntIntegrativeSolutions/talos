@@ -45,7 +45,7 @@ _ALEMBIC_INI = str(_REPO_ROOT / "engine" / "alembic.ini")
 
 @pytest.fixture(scope="session")
 def pg_container():
-    with PostgresContainer("postgres:16") as pg:
+    with PostgresContainer("pgvector/pgvector:pg16") as pg:
         yield pg
 
 
@@ -223,6 +223,105 @@ def pg_setup(pg_container):
     cur.execute("ALTER TABLE rules ADD COLUMN safety BOOLEAN NOT NULL DEFAULT false")
     cur.execute("ALTER TABLE rules ADD COLUMN superseded_by TEXT REFERENCES rules(id)")
 
+    # Apply V0009 content directly (pgvector extension + notes/links/tags/chunks
+    # tables -- ADR-039 action item #1).
+    cur.execute("CREATE EXTENSION IF NOT EXISTS vector")
+
+    cur.execute("""
+        CREATE TABLE notes (
+            id            TEXT PRIMARY KEY,
+            board_id      TEXT NOT NULL REFERENCES boards(id),
+            path          TEXT NOT NULL,
+            title         TEXT NOT NULL,
+            frontmatter   JSONB NOT NULL DEFAULT '{}',
+            content_hash  TEXT NOT NULL,
+            mtime         TIMESTAMPTZ NOT NULL,
+            created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+            UNIQUE (board_id, path)
+        )
+    """)
+    cur.execute("ALTER TABLE notes ENABLE ROW LEVEL SECURITY")
+    cur.execute("""
+        CREATE POLICY notes_board_isolation ON notes
+            USING     (board_id = current_setting('app.board_id', true))
+            WITH CHECK (board_id = current_setting('app.board_id', true))
+    """)
+    cur.execute("""
+        CREATE POLICY notes_admin_bypass ON notes USING (current_user = 'talos_admin')
+    """)
+    cur.execute("ALTER TABLE notes FORCE ROW LEVEL SECURITY")
+
+    cur.execute("""
+        CREATE TABLE links (
+            id             BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+            board_id       TEXT NOT NULL REFERENCES boards(id),
+            src_note_id    TEXT NOT NULL REFERENCES notes(id),
+            target_note_id TEXT REFERENCES notes(id),
+            target_slug    TEXT,
+            link_type      TEXT NOT NULL CHECK (link_type IN ('wikilink', 'embed', 'tag_ref')),
+            valid_from     TIMESTAMPTZ NOT NULL DEFAULT now(),
+            valid_until    TIMESTAMPTZ,
+            ingested_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+            CHECK ((target_note_id IS NULL) <> (target_slug IS NULL))
+        )
+    """)
+    cur.execute("ALTER TABLE links ENABLE ROW LEVEL SECURITY")
+    cur.execute("""
+        CREATE POLICY links_board_isolation ON links
+            USING     (board_id = current_setting('app.board_id', true))
+            WITH CHECK (board_id = current_setting('app.board_id', true))
+    """)
+    cur.execute("""
+        CREATE POLICY links_admin_bypass ON links USING (current_user = 'talos_admin')
+    """)
+    cur.execute("ALTER TABLE links FORCE ROW LEVEL SECURITY")
+
+    cur.execute("""
+        CREATE TABLE tags (
+            note_id  TEXT NOT NULL REFERENCES notes(id),
+            board_id TEXT NOT NULL REFERENCES boards(id),
+            tag      TEXT NOT NULL,
+            PRIMARY KEY (note_id, tag)
+        )
+    """)
+    cur.execute("ALTER TABLE tags ENABLE ROW LEVEL SECURITY")
+    cur.execute("""
+        CREATE POLICY tags_board_isolation ON tags
+            USING     (board_id = current_setting('app.board_id', true))
+            WITH CHECK (board_id = current_setting('app.board_id', true))
+    """)
+    cur.execute("""
+        CREATE POLICY tags_admin_bypass ON tags USING (current_user = 'talos_admin')
+    """)
+    cur.execute("ALTER TABLE tags FORCE ROW LEVEL SECURITY")
+
+    cur.execute("""
+        CREATE TABLE chunks (
+            id          BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+            board_id    TEXT NOT NULL REFERENCES boards(id),
+            note_id     TEXT REFERENCES notes(id),
+            source      TEXT NOT NULL CHECK (source IN ('vault', 'doc', 'rule')),
+            chunk_text  TEXT NOT NULL,
+            embedding   vector(384) NOT NULL,
+            metadata    JSONB NOT NULL DEFAULT '{}',
+            created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+        )
+    """)
+    cur.execute("ALTER TABLE chunks ENABLE ROW LEVEL SECURITY")
+    cur.execute("""
+        CREATE POLICY chunks_board_isolation ON chunks
+            USING     (board_id = current_setting('app.board_id', true))
+            WITH CHECK (board_id = current_setting('app.board_id', true))
+    """)
+    cur.execute("""
+        CREATE POLICY chunks_admin_bypass ON chunks USING (current_user = 'talos_admin')
+    """)
+    cur.execute("ALTER TABLE chunks FORCE ROW LEVEL SECURITY")
+    cur.execute(
+        "CREATE INDEX chunks_embedding_ivfflat ON chunks "
+        "USING ivfflat (embedding vector_cosine_ops) WITH (lists = 100)"
+    )
+
     # Create talos_app as NOSUPERUSER so RLS applies to it.
     # The table owner (postgres) bypasses RLS; talos_app does not.
     cur.execute(
@@ -242,6 +341,10 @@ def pg_setup(pg_container):
     cur.execute(
         "GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO talos_app"
     )
+    # talos_app needs DELETE on chunks specifically: pgvector_store's
+    # upsert_rule/ingest_deliverable implement idempotent re-embedding as
+    # delete-then-insert (ADR-039 action item #3; see docs/install.md).
+    cur.execute("GRANT DELETE ON chunks TO talos_app")
 
     # Create talos_system: BYPASSRLS role for cross-board reclaim janitor (ADR-037).
     cur.execute(

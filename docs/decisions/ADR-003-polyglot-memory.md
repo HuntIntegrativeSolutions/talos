@@ -1,6 +1,6 @@
 # ADR-003: Polyglot memory — four stores, one per job
 
-**Status:** Accepted
+**Status:** Superseded by [ADR-039](ADR-039-unified-postgres-memory.md) (2026-07-12)
 **Date:** 2026-06-10
 **Deciders:** Hunt Integrative Solutions LLC
 

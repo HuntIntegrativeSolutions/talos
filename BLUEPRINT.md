@@ -1,6 +1,6 @@
 # TALOS — Blueprint
 
-> **Status:** living draft · v0.6 · 2026-06-11
+> **Status:** living draft · v0.7 · 2026-07-12
 > **Purpose:** the reconciled design of record. Not an implementation — a map to argue with.
 > **Open:** ideas are still landing. See the [Parking Lot](#parking-lot) at the end.
 
@@ -140,14 +140,18 @@ The resolution to "single-session coherence vs. distributed workers": keep both,
 
 ## Memory
 
-Four stores, each for the job it does best, tiered hot → warm → cold:
+**One Postgres instance + one markdown vault** (ADR-039, 2026-07-12 — supersedes the
+four-store design of ADR-003; Neo4j and Redis are cancelled, Chroma is replaced):
 
-| Store | Role | Tier |
-| --- | --- | --- |
-| Postgres | system of record: board, project, event log | warm |
-| Graph (Neo4j) | knowledge & topology; **federated** to the NEXUS graph (read-through, never duplicated) | cold/reference |
-| Vector (pgvector/Chroma) | semantic + episodic recall | warm |
-| Redis | working memory, live-dashboard pub/sub, locks, dispatcher coordination | hot |
+| Layer | Role |
+| --- | --- |
+| Postgres | system of record: board, project, event log; working memory + locks (`SKIP LOCKED`, LISTEN/NOTIFY) |
+| pgvector (same PG) | semantic + episodic recall — vectors under `board_id` RLS, joinable to rules/tasks/entities |
+| Graph tables (same PG) | `notes/links/tags/chunks` + recursive CTEs; Apache AGE (Cypher) as upgrade path; bi-temporal edges (`valid_from/valid_until/ingested_at`); **federated** to the NEXUS graph (read-through, never duplicated) |
+| Markdown vault | human-auditable knowledge truth (Obsidian-compatible frontmatter + wikilinks); a watcher/indexer projects it into the PG tables — the DB is a derived, rebuildable projection |
+
+Backup = `pg_dump` + rsync of the vault. Everything below RLS; one service to patch on
+an air-gapped box.
 
 - **Cross-client split + unified promotion gate.** Tag every *learned artifact* — graph node, skill,
   and crystallized strategy path — with `client_scope: [shared]` (vendor/device knowledge: how to
@@ -269,8 +273,9 @@ throughout — never merged.**
 | **6** | Gateway + proactivity (sandboxed) | |
 | **7** | Edge + sync; thin/thick per client; model routing | |
 
-Stack: Python + FastAPI engine, Postgres/Redis, Neo4j + pgvector/Chroma, a Space-Agent-derived JS
-view over the board API, MCP for capabilities, Docker + Tailscale.
+Stack: Python + FastAPI engine, one Postgres (pgvector + graph tables/AGE; ADR-039) +
+markdown vault, a Space-Agent-derived JS view over the board API, MCP for capabilities,
+Docker + Tailscale.
 
 ---
 
@@ -305,7 +310,8 @@ hard to retrofit, design in now. **Later** = phase-appropriate optimization.
 
 Formalized: [ADR-001](docs/decisions/ADR-001-platform-vs-nexus.md) (platform, not merge) ·
 [ADR-002](docs/decisions/ADR-002-board-as-space.md) (board-as-Space) ·
-[ADR-003](docs/decisions/ADR-003-polyglot-memory.md) (polyglot memory).
+[ADR-003](docs/decisions/ADR-003-polyglot-memory.md) (polyglot memory — **superseded by**
+[ADR-039](docs/decisions/ADR-039-unified-postgres-memory.md), unified Postgres + vault).
 
 To formalize next: capability read/write tool profiles · cross-client memory split + **unified**
 promotion gate (memory / skill / path) · phase reorder (gate before dispatcher) · the Strategy Ladder
@@ -316,6 +322,11 @@ L5X format) · **vault topology** (graph-as-linker on the mothership; versioned 
 
 ## Changelog
 
+- **v0.7** (2026-07-12) — Memory redesign per ADR-039 (supersedes ADR-003): one Postgres
+  (pgvector replaces Chroma; graph tables + recursive CTEs with Apache AGE as upgrade path;
+  bi-temporal edges) + a markdown vault as the human-auditable knowledge truth with a
+  watcher/indexer projecting into RLS'd PG tables. Neo4j and Redis cancelled. NEXUS
+  federation (read-through, never duplicated) unchanged.
 - **v0.6** (2026-06-11) — Added the Cockpit (View layer): task-centric board over agent cards, the
   five gate outcomes with the safety-waiver→escalate rule, the NEXUS review canvas (deliverable vs.
   PageRank graph slice), three-level drill-down, temporal replay from the event log, and the

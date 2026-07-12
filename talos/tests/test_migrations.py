@@ -81,7 +81,7 @@ def test_alembic_upgrade_head_on_empty_db(empty_db_dsn):
 
     cur.execute("SELECT version_num FROM alembic_version")
     (version,) = cur.fetchone()
-    assert version == "V0008"
+    assert version == "V0009"
 
     cur.execute(
         "SELECT column_name FROM information_schema.columns "
@@ -100,6 +100,12 @@ def test_alembic_upgrade_head_on_empty_db(empty_db_dsn):
         "WHERE table_name = 'rules' AND column_name = 'superseded_by'"
     )
     assert cur.fetchone() is not None, "rules.superseded_by missing after upgrade head"
+
+    cur.execute(
+        "SELECT column_name FROM information_schema.columns "
+        "WHERE table_name = 'chunks' AND column_name = 'embedding'"
+    )
+    assert cur.fetchone() is not None, "chunks.embedding missing after upgrade head"
 
     cur.execute(
         "SELECT relforcerowsecurity FROM pg_class WHERE relname = 'task_spans'"
