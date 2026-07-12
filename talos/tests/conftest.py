@@ -345,6 +345,10 @@ def pg_setup(pg_container):
     # upsert_rule/ingest_deliverable implement idempotent re-embedding as
     # delete-then-insert (ADR-039 action item #3; see docs/install.md).
     cur.execute("GRANT DELETE ON chunks TO talos_app")
+    # talos_app needs DELETE on notes/links/tags: talos.vault.indexer's
+    # --rebuild and file-deletion handling delete this board's vault-owned
+    # rows (ADR-039 action item #2; see docs/install.md).
+    cur.execute("GRANT DELETE ON notes, links, tags TO talos_app")
 
     # Create talos_system: BYPASSRLS role for cross-board reclaim janitor (ADR-037).
     cur.execute(

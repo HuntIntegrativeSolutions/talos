@@ -78,6 +78,12 @@ psql -U postgres -d talos -c "GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA pub
 # no external-id column to ON CONFLICT against (ADR-039 action item #3).
 psql -U postgres -d talos -c "GRANT DELETE ON chunks TO talos_app;"
 
+# talos_app additionally needs DELETE on notes/links/tags: talos.vault.indexer's
+# --rebuild and file-deletion handling delete this board's vault-owned rows
+# (talos_app isn't the table owner and has no TRUNCATE grant) -- ADR-039 action
+# item #2.
+psql -U postgres -d talos -c "GRANT DELETE ON notes, links, tags TO talos_app;"
+
 # Grant talos_system access for cross-board reclaim:
 # SELECT on all tables is required so triggers (pm_recompute_scheduling) can read
 # v_critical_path and underlying tables when talos_system updates task status.

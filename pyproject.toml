@@ -6,10 +6,16 @@ build-backend = "setuptools.build_meta"
 where = ["."]
 include = ["talos*"]
 
+[tool.pytest.ini_options]
+testpaths = ["talos", "scripts"]
+
 [project]
 name = "talos"
 version = "0.1.0"
 requires-python = ">=3.11"
+
+[project.scripts]
+talos = "talos.cli:main"
 
 [project.optional-dependencies]
 app = [
@@ -28,6 +34,7 @@ app = [
     "argon2-cffi",
     "chromadb",
     "sentence-transformers",
+    "python-frontmatter",
 ]
 test = [
     "pytest",
@@ -48,7 +55,11 @@ test = [
     "argon2-cffi",
     "chromadb",
     "sentence-transformers",
+    "python-frontmatter",
 ]
 experiment = [
     "claude-agent-sdk",
+]
+vault-watch = [
+    "watchdog",
 ]
