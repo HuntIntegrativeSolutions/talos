@@ -76,7 +76,7 @@ gets superseded with data already in exportable, open formats.
 
 ## Action items
 1. [x] Alembic migrations: pgvector extension + notes/links/tags/chunks tables (RLS'd).
-2. [ ] Vault indexer service (watcher + frontmatter/wikilink parser; obsidiantools as reference).
+2. [x] Vault indexer service (owned parser + watcher; `talos vault index`) — commit e95ae77.
 3. [x] Chroma → pgvector port of both read branches, via an **interim** `MEMORY_BACKEND`
    toggle (`talos.config.get_memory_backend()`, default `"pgvector"`, `"chroma"` still
    selectable) rather than the one-shot cutover this item originally described. The
@@ -84,7 +84,8 @@ gets superseded with data already in exportable, open formats.
    can prove pgvector and Chroma agree on the same fixture corpus before Chroma is
    actually removed — see action item #7. `scripts/migrate_chroma_to_pgvector.py`
    backfills existing Chroma collections into `chunks`.
-4. [ ] Bi-temporal edge schema + NEXUS entity seeding (known-fact injection).
+4. [x] Bi-temporal edge schema (V0009 links) + NEXUS entity seeding (`talos entities seed`,
+   V0010 entities/note_entity_links) — commit 09c9d7e.
 5. [x] `talos.toml [resources]` knobs honored by index builds (R8) — `embed_threads` is
    now consumed by `talos.memory.embedding.get_embed_fn()`; `index_type`/
    `hnsw_build_workers` remain documented-but-unconsumed (V0009's ivfflat index is
