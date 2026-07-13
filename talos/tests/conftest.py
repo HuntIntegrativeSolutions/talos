@@ -322,6 +322,55 @@ def pg_setup(pg_container):
         "USING ivfflat (embedding vector_cosine_ops) WITH (lists = 100)"
     )
 
+    # Apply V0010 content directly (entities + note_entity_links tables --
+    # ADR-039 action item #4).
+    cur.execute("""
+        CREATE TABLE entities (
+            id           TEXT PRIMARY KEY,
+            board_id     TEXT NOT NULL REFERENCES boards(id),
+            entity_type  TEXT NOT NULL CHECK (entity_type IN ('controller', 'program', 'routine', 'tag')),
+            name         TEXT NOT NULL,
+            external_ref TEXT NOT NULL,
+            metadata     JSONB NOT NULL DEFAULT '{}',
+            created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+            UNIQUE (board_id, entity_type, external_ref)
+        )
+    """)
+    cur.execute("ALTER TABLE entities ENABLE ROW LEVEL SECURITY")
+    cur.execute("""
+        CREATE POLICY entities_board_isolation ON entities
+            USING     (board_id = current_setting('app.board_id', true))
+            WITH CHECK (board_id = current_setting('app.board_id', true))
+    """)
+    cur.execute("""
+        CREATE POLICY entities_admin_bypass ON entities USING (current_user = 'talos_admin')
+    """)
+    cur.execute("ALTER TABLE entities FORCE ROW LEVEL SECURITY")
+
+    cur.execute("""
+        CREATE TABLE note_entity_links (
+            id          BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+            board_id    TEXT NOT NULL REFERENCES boards(id),
+            note_id     TEXT NOT NULL REFERENCES notes(id),
+            entity_id   TEXT NOT NULL REFERENCES entities(id),
+            link_type   TEXT NOT NULL CHECK (link_type IN ('mentions', 'documents')),
+            valid_from  TIMESTAMPTZ NOT NULL DEFAULT now(),
+            valid_until TIMESTAMPTZ,
+            ingested_at TIMESTAMPTZ NOT NULL DEFAULT now()
+        )
+    """)
+    cur.execute("ALTER TABLE note_entity_links ENABLE ROW LEVEL SECURITY")
+    cur.execute("""
+        CREATE POLICY note_entity_links_board_isolation ON note_entity_links
+            USING     (board_id = current_setting('app.board_id', true))
+            WITH CHECK (board_id = current_setting('app.board_id', true))
+    """)
+    cur.execute("""
+        CREATE POLICY note_entity_links_admin_bypass ON note_entity_links
+            USING (current_user = 'talos_admin')
+    """)
+    cur.execute("ALTER TABLE note_entity_links FORCE ROW LEVEL SECURITY")
+
     # Create talos_app as NOSUPERUSER so RLS applies to it.
     # The table owner (postgres) bypasses RLS; talos_app does not.
     cur.execute(
@@ -349,6 +398,11 @@ def pg_setup(pg_container):
     # --rebuild and file-deletion handling delete this board's vault-owned
     # rows (ADR-039 action item #2; see docs/install.md).
     cur.execute("GRANT DELETE ON notes, links, tags TO talos_app")
+    # talos_app needs DELETE on note_entity_links: talos.vault.indexer's
+    # --rebuild and note-deletion handling hard-delete this note's entity
+    # links (same reasoning as notes/links/tags above) -- ADR-039 action
+    # item #4.
+    cur.execute("GRANT DELETE ON note_entity_links TO talos_app")
 
     # Create talos_system: BYPASSRLS role for cross-board reclaim janitor (ADR-037).
     cur.execute(

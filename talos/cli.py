@@ -25,9 +25,21 @@ def _print_stats(stats) -> None:
     print(f"links: created={stats.links_created} closed={stats.links_closed}")
     print(f"tags: written={stats.tags_written}")
     print(f"chunks: written={stats.chunks_written}")
+    print(
+        f"entity_links: created={stats.entity_links_created} "
+        f"closed={stats.entity_links_closed}"
+    )
 
 
-def _watch(board_id: str, vault_path: Path, rebuild: bool) -> int:
+def _print_seed_stats(stats, board_id: str) -> None:
+    print(f"entities: created={stats.created} updated={stats.updated} stale={stats.stale}")
+    print(
+        "to pick up newly-seeded entities in already-indexed notes, run: "
+        f"talos vault index --board {board_id} --path <vault-path> --rematch-entities"
+    )
+
+
+def _watch(board_id: str, vault_path: Path, rebuild: bool, match_entities: bool) -> int:
     try:
         from watchdog.events import FileSystemEventHandler
         from watchdog.observers import Observer
@@ -45,7 +57,7 @@ def _watch(board_id: str, vault_path: Path, rebuild: bool) -> int:
     state = {"timer": None}
 
     def _reindex() -> None:
-        stats = index_vault(board_id, vault_path, rebuild=False)
+        stats = index_vault(board_id, vault_path, rebuild=False, match_entities=match_entities)
         _print_stats(stats)
 
     class _Handler(FileSystemEventHandler):
@@ -58,7 +70,7 @@ def _watch(board_id: str, vault_path: Path, rebuild: bool) -> int:
                 state["timer"] = threading.Timer(0.5, _reindex)
                 state["timer"].start()
 
-    _print_stats(index_vault(board_id, vault_path, rebuild=rebuild))
+    _print_stats(index_vault(board_id, vault_path, rebuild=rebuild, match_entities=match_entities))
 
     observer = Observer()
     observer.schedule(_Handler(), str(vault_path), recursive=True)
@@ -81,11 +93,26 @@ def _cmd_vault_index(args: argparse.Namespace) -> int:
         print(f"error: --path {vault_path} is not a directory", file=sys.stderr)
         return 1
 
-    if args.watch:
-        return _watch(args.board, vault_path, rebuild=args.rebuild)
+    match_entities = not args.no_entities
 
-    stats = index_vault(args.board, vault_path, rebuild=args.rebuild)
+    if args.watch:
+        return _watch(args.board, vault_path, rebuild=args.rebuild, match_entities=match_entities)
+
+    stats = index_vault(
+        args.board, vault_path,
+        rebuild=args.rebuild,
+        match_entities=match_entities,
+        rematch_entities=args.rematch_entities,
+    )
     _print_stats(stats)
+    return 0
+
+
+def _cmd_entities_seed(args: argparse.Namespace) -> int:
+    from talos.nexus_seed import seed_entities
+
+    stats = seed_entities(args.board)
+    _print_seed_stats(stats, args.board)
     return 0
 
 
@@ -107,7 +134,24 @@ def main(argv: list[str] | None = None) -> int:
     index_parser.add_argument(
         "--watch", action="store_true", help="keep running, re-indexing on file changes"
     )
+    index_parser.add_argument(
+        "--no-entities", action="store_true", help="skip NEXUS entity matching"
+    )
+    index_parser.add_argument(
+        "--rematch-entities", action="store_true",
+        help="re-run entity matching against hash-unchanged notes too "
+        "(run after seeding new entities so already-indexed notes pick them up)",
+    )
     index_parser.set_defaults(func=_cmd_vault_index)
+
+    entities_parser = subparsers.add_parser("entities", help="NEXUS entity seeding commands")
+    entities_sub = entities_parser.add_subparsers(dest="entities_command", required=True)
+
+    seed_parser = entities_sub.add_parser(
+        "seed", help="Seed NEXUS entities (controllers/programs/routines/tags) into Postgres"
+    )
+    seed_parser.add_argument("--board", required=True, help="board_id to seed into")
+    seed_parser.set_defaults(func=_cmd_entities_seed)
 
     args = parser.parse_args(argv)
     return args.func(args)

@@ -81,7 +81,7 @@ def test_alembic_upgrade_head_on_empty_db(empty_db_dsn):
 
     cur.execute("SELECT version_num FROM alembic_version")
     (version,) = cur.fetchone()
-    assert version == "V0009"
+    assert version == "V0010"
 
     cur.execute(
         "SELECT column_name FROM information_schema.columns "
@@ -112,6 +112,20 @@ def test_alembic_upgrade_head_on_empty_db(empty_db_dsn):
     )
     (force_rls,) = cur.fetchone()
     assert force_rls is True, "task_spans FORCE ROW LEVEL SECURITY not applied (V0003 didn't run)"
+
+    cur.execute(
+        "SELECT column_name FROM information_schema.columns "
+        "WHERE table_name = 'entities' AND column_name = 'external_ref'"
+    )
+    assert cur.fetchone() is not None, "entities.external_ref missing after upgrade head"
+
+    cur.execute(
+        "SELECT relforcerowsecurity FROM pg_class WHERE relname = 'note_entity_links'"
+    )
+    row = cur.fetchone()
+    assert row is not None and row[0] is True, (
+        "note_entity_links FORCE ROW LEVEL SECURITY not applied (V0010 didn't run)"
+    )
 
     cur.close()
     conn.close()

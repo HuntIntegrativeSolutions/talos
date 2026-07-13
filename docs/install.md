@@ -84,6 +84,11 @@ psql -U postgres -d talos -c "GRANT DELETE ON chunks TO talos_app;"
 # item #2.
 psql -U postgres -d talos -c "GRANT DELETE ON notes, links, tags TO talos_app;"
 
+# talos_app additionally needs DELETE on note_entity_links: talos.vault.indexer's
+# --rebuild and note-deletion handling hard-delete this note's entity links
+# -- ADR-039 action item #4.
+psql -U postgres -d talos -c "GRANT DELETE ON note_entity_links TO talos_app;"
+
 # Grant talos_system access for cross-board reclaim:
 # SELECT on all tables is required so triggers (pm_recompute_scheduling) can read
 # v_critical_path and underlying tables when talos_system updates task status.

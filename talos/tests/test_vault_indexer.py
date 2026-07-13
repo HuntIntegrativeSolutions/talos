@@ -46,6 +46,20 @@ def _seed_board(conn, board_id: str) -> None:
     conn.commit()
 
 
+def _seed_entity(conn, board_id: str, entity_type: str, name: str, external_ref: str) -> str:
+    import hashlib
+
+    entity_id = hashlib.sha256(f"{board_id}:{entity_type}:{external_ref}".encode()).hexdigest()[:32]
+    with conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO entities (id, board_id, entity_type, name, external_ref) "
+            "VALUES (%s, %s, %s, %s, %s) ON CONFLICT DO NOTHING",
+            (entity_id, board_id, entity_type, name, external_ref),
+        )
+    conn.commit()
+    return entity_id
+
+
 def _write(vault_dir, rel_path: str, content: str) -> None:
     p = vault_dir / rel_path
     p.parent.mkdir(parents=True, exist_ok=True)
@@ -376,3 +390,243 @@ def test_wikilinks_inside_code_are_not_links(pg_setup, admin_conn, fake_embedder
         (board_id,),
     )
     assert {r[0] for r in rows} == {"target"}
+
+
+# ---------------------------------------------------------------------------
+# Entity matching (ADR-039 action item #4)
+
+
+def _entity_links(conn, board_id, note_path):
+    return _query(
+        conn,
+        "SELECT e.name, l.link_type FROM note_entity_links l "
+        "JOIN notes n ON n.id = l.note_id JOIN entities e ON e.id = l.entity_id "
+        "WHERE l.board_id = %s AND n.path = %s AND l.valid_until IS NULL",
+        (board_id, note_path),
+    )
+
+
+def test_entity_exact_token_match_no_substring_false_positive(pg_setup, admin_conn, fake_embedder, tmp_path):
+    board_id = f"board-{uuid.uuid4().hex[:8]}"
+    _seed_board(admin_conn, board_id)
+    _seed_entity(admin_conn, board_id, "tag", "PIT_01", "PLC1:PIT_01")
+
+    _write(tmp_path, "hit.md", "# Hit\nAlarm on PIT_01 today.")
+    _write(tmp_path, "miss.md", "# Miss\nWRK_PIT_01 and PIT_012 are different tags.")
+    index_vault(board_id, tmp_path)
+
+    assert _entity_links(admin_conn, board_id, "hit.md") == [("PIT_01", "mentions")]
+    assert _entity_links(admin_conn, board_id, "miss.md") == []
+
+
+def test_entity_wikilink_match(pg_setup, admin_conn, fake_embedder, tmp_path):
+    board_id = f"board-{uuid.uuid4().hex[:8]}"
+    _seed_board(admin_conn, board_id)
+    _seed_entity(admin_conn, board_id, "controller", "PLC_WEST_01", "PLC_WEST_01")
+
+    _write(tmp_path, "note.md", "# Note\nSee [[PLC_WEST_01]] for details.")
+    index_vault(board_id, tmp_path)
+
+    assert _entity_links(admin_conn, board_id, "note.md") == [("PLC_WEST_01", "mentions")]
+
+
+def test_entity_short_name_skipped_for_body_but_matches_wikilink(pg_setup, admin_conn, fake_embedder, tmp_path):
+    board_id = f"board-{uuid.uuid4().hex[:8]}"
+    _seed_board(admin_conn, board_id)
+    _seed_entity(admin_conn, board_id, "tag", "M1", "PLC1:M1")
+
+    _write(tmp_path, "body-only.md", "# Body\nMotor M1 runs fine.")
+    _write(tmp_path, "wikilink.md", "# Link\n[[M1]]")
+    index_vault(board_id, tmp_path)
+
+    assert _entity_links(admin_conn, board_id, "body-only.md") == []
+    assert _entity_links(admin_conn, board_id, "wikilink.md") == [("M1", "mentions")]
+
+
+def test_entity_frontmatter_documents_without_wikilink_or_mention(pg_setup, admin_conn, fake_embedder, tmp_path):
+    board_id = f"board-{uuid.uuid4().hex[:8]}"
+    _seed_board(admin_conn, board_id)
+    _seed_entity(admin_conn, board_id, "tag", "PIT_01", "PLC1:PIT_01")
+
+    _write(tmp_path, "note.md", """
+        ---
+        documents: [PIT_01]
+        ---
+        # Note
+        No wikilink or body mention of the tag here.
+    """)
+    index_vault(board_id, tmp_path)
+
+    assert _entity_links(admin_conn, board_id, "note.md") == [("PIT_01", "documents")]
+
+
+def test_entity_documents_wins_over_mention_single_row(pg_setup, admin_conn, fake_embedder, tmp_path):
+    board_id = f"board-{uuid.uuid4().hex[:8]}"
+    _seed_board(admin_conn, board_id)
+    _seed_entity(admin_conn, board_id, "tag", "PIT_01", "PLC1:PIT_01")
+
+    _write(tmp_path, "note.md", """
+        ---
+        documents: [PIT_01]
+        ---
+        # Note
+        PIT_01 is mentioned right here too.
+    """)
+    index_vault(board_id, tmp_path)
+
+    rows = _entity_links(admin_conn, board_id, "note.md")
+    assert rows == [("PIT_01", "documents")]
+
+
+def test_entity_unresolvable_documents_entry_logged_and_skipped(pg_setup, admin_conn, fake_embedder, tmp_path):
+    board_id = f"board-{uuid.uuid4().hex[:8]}"
+    _seed_board(admin_conn, board_id)
+
+    _write(tmp_path, "note.md", """
+        ---
+        documents: [NoSuchTag]
+        ---
+        # Note
+        body
+    """)
+    index_vault(board_id, tmp_path)
+
+    assert _entity_links(admin_conn, board_id, "note.md") == []
+
+
+def test_entity_link_removal_is_bi_temporal_not_deleted(pg_setup, admin_conn, fake_embedder, tmp_path):
+    board_id = f"board-{uuid.uuid4().hex[:8]}"
+    _seed_board(admin_conn, board_id)
+    _seed_entity(admin_conn, board_id, "tag", "PIT_01", "PLC1:PIT_01")
+
+    _write(tmp_path, "note.md", "# Note\nPIT_01 mentioned here.")
+    index_vault(board_id, tmp_path)
+    assert _entity_links(admin_conn, board_id, "note.md") == [("PIT_01", "mentions")]
+
+    _write(tmp_path, "note.md", "# Note\nNo tag mention anymore.")
+    index_vault(board_id, tmp_path)
+    assert _entity_links(admin_conn, board_id, "note.md") == []
+
+    all_rows = _query(
+        admin_conn,
+        "SELECT l.valid_until FROM note_entity_links l JOIN notes n ON n.id = l.note_id "
+        "WHERE l.board_id = %s AND n.path = 'note.md'",
+        (board_id,),
+    )
+    assert len(all_rows) == 1
+    assert all_rows[0][0] is not None  # historical row still present, closed
+
+
+def test_entity_rematch_picks_up_newly_seeded_entity_on_unchanged_note(pg_setup, admin_conn, fake_embedder, tmp_path):
+    board_id = f"board-{uuid.uuid4().hex[:8]}"
+    _seed_board(admin_conn, board_id)
+
+    _write(tmp_path, "note.md", "# Note\nAlarm on PIT_01 today.")
+    index_vault(board_id, tmp_path)
+    assert _entity_links(admin_conn, board_id, "note.md") == []
+
+    before = _query(
+        admin_conn,
+        "SELECT content_hash, mtime FROM notes WHERE board_id = %s AND path = 'note.md'",
+        (board_id,),
+    )
+
+    # Entity seeded after the note was already indexed -- note.md's file
+    # never changed, so a normal re-index (hash-unchanged) would never match it.
+    _seed_entity(admin_conn, board_id, "tag", "PIT_01", "PLC1:PIT_01")
+
+    stats = index_vault(board_id, tmp_path)
+    assert stats.notes_unchanged == 1
+    assert _entity_links(admin_conn, board_id, "note.md") == []  # not yet -- no rematch
+
+    stats = index_vault(board_id, tmp_path, rematch_entities=True)
+    assert _entity_links(admin_conn, board_id, "note.md") == [("PIT_01", "mentions")]
+
+    after = _query(
+        admin_conn,
+        "SELECT content_hash, mtime FROM notes WHERE board_id = %s AND path = 'note.md'",
+        (board_id,),
+    )
+    assert before == after  # rematch touched only entity links, not the note row
+
+
+def test_entity_payoff_join_one_query(pg_setup, admin_conn, fake_embedder, tmp_path):
+    board_id = f"board-{uuid.uuid4().hex[:8]}"
+    _seed_board(admin_conn, board_id)
+    _seed_entity(admin_conn, board_id, "tag", "PIT_01", "PLC1:PIT_01")
+
+    _write(tmp_path, "affected.md", "# Affected\nDiscusses PIT_01 behavior.")
+    _write(tmp_path, "unrelated.md", "# Unrelated\nNothing to do with tags.")
+    index_vault(board_id, tmp_path)
+
+    rows = _query(
+        admin_conn,
+        "SELECT n.path FROM notes n "
+        "JOIN note_entity_links l ON l.note_id = n.id AND l.valid_until IS NULL "
+        "JOIN entities e ON e.id = l.entity_id "
+        "WHERE n.board_id = %s AND e.name = %s",
+        (board_id, "PIT_01"),
+    )
+    assert [r[0] for r in rows] == ["affected.md"]
+
+
+def test_entity_matching_can_be_disabled(pg_setup, admin_conn, fake_embedder, tmp_path):
+    board_id = f"board-{uuid.uuid4().hex[:8]}"
+    _seed_board(admin_conn, board_id)
+    _seed_entity(admin_conn, board_id, "tag", "PIT_01", "PLC1:PIT_01")
+
+    _write(tmp_path, "note.md", "# Note\nPIT_01 mentioned here.")
+    index_vault(board_id, tmp_path, match_entities=False)
+
+    assert _entity_links(admin_conn, board_id, "note.md") == []
+
+
+def test_entity_note_deletion_removes_entity_links(pg_setup, admin_conn, fake_embedder, tmp_path):
+    board_id = f"board-{uuid.uuid4().hex[:8]}"
+    _seed_board(admin_conn, board_id)
+    _seed_entity(admin_conn, board_id, "tag", "PIT_01", "PLC1:PIT_01")
+
+    _write(tmp_path, "note.md", "# Note\nPIT_01 mentioned here.")
+    index_vault(board_id, tmp_path)
+    assert _entity_links(admin_conn, board_id, "note.md") == [("PIT_01", "mentions")]
+
+    (tmp_path / "note.md").unlink()
+    index_vault(board_id, tmp_path)
+
+    rows = _query(
+        admin_conn,
+        "SELECT 1 FROM note_entity_links WHERE board_id = %s",
+        (board_id,),
+    )
+    assert rows == []
+
+
+# ---------------------------------------------------------------------------
+# Cross-board isolation (entities + note_entity_links)
+
+
+def test_entity_cross_board_isolation(pg_setup, admin_conn, app_conn, fake_embedder, tmp_path):
+    board_a = f"board-a-{uuid.uuid4().hex[:8]}"
+    board_b = f"board-b-{uuid.uuid4().hex[:8]}"
+    _seed_board(admin_conn, board_a)
+    _seed_board(admin_conn, board_b)
+    _seed_entity(admin_conn, board_a, "tag", "PIT_01", "PLC1:PIT_01")
+    _seed_entity(admin_conn, board_b, "tag", "PIT_01", "PLC1:PIT_01")
+
+    vault_a = tmp_path / "vault-a"
+    vault_b = tmp_path / "vault-b"
+    _write(vault_a, "note.md", "# A\nPIT_01 mentioned.")
+    _write(vault_b, "note.md", "# B\nPIT_01 mentioned.")
+    index_vault(board_a, vault_a)
+    index_vault(board_b, vault_b)
+
+    with app_conn.cursor() as cur:
+        cur.execute("SET LOCAL app.board_id = %s", (board_b,))
+        cur.execute("SELECT name FROM entities")
+        entities_visible = {r[0] for r in cur.fetchall()}
+        cur.execute("SELECT 1 FROM note_entity_links")
+        links_visible = cur.fetchall()
+    app_conn.rollback()
+
+    assert entities_visible == {"PIT_01"}
+    assert len(links_visible) == 1

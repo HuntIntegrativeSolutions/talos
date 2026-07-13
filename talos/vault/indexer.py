@@ -29,6 +29,7 @@ import dataclasses
 import hashlib
 import json
 import logging
+import re
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from pathlib import Path
@@ -38,6 +39,16 @@ from talos.memory.chunking import chunk_by_heading
 from talos.vault.parser import ParsedNote, parse_note_safe, slugify
 
 log = logging.getLogger(__name__)
+
+# Whole-token match only (industrial tag names like PIT_UNIT_01_TEMP are
+# exact strings -- a substring match would flood false positives). Splitting
+# on non-[A-Za-z0-9_] naturally keeps underscore-joined tag names as single
+# tokens, so PIT_01 never matches inside WRK_PIT_01.
+_TOKEN_RE = re.compile(r"[A-Za-z0-9_]+")
+
+# Body-text matching skips entity names shorter than this (short names like
+# "M1" would flood false positives); wikilink/documents: matches have no floor.
+_ENTITY_BODY_MATCH_MIN_LEN = 4
 
 
 @dataclasses.dataclass
@@ -50,6 +61,8 @@ class IndexStats:
     links_closed: int = 0
     tags_written: int = 0
     chunks_written: int = 0
+    entity_links_created: int = 0
+    entity_links_closed: int = 0
 
 
 def _note_id(board_id: str, rel_path: str) -> str:
@@ -100,7 +113,18 @@ def _resolve_slug_winners(rel_paths: list[str]) -> dict[str, str]:
     return winners
 
 
-def index_vault(board_id: str, vault_path: Path, rebuild: bool = False) -> IndexStats:
+def index_vault(
+    board_id: str,
+    vault_path: Path,
+    rebuild: bool = False,
+    match_entities: bool = True,
+    rematch_entities: bool = False,
+) -> IndexStats:
+    """rematch_entities=True re-runs entity matching against notes whose
+    content hash is unchanged this run (see _match_note_entities's docstring
+    for why this is necessary -- a newly-seeded entity can retroactively
+    match a note whose file never changed, and that match would otherwise
+    never happen until the note is next edited)."""
     from talos.db import board_scope, get_conn
 
     vault_path = Path(vault_path)
@@ -110,6 +134,7 @@ def index_vault(board_id: str, vault_path: Path, rebuild: bool = False) -> Index
     try:
         if rebuild:
             with board_scope(conn, board_id) as cur:
+                cur.execute("DELETE FROM note_entity_links WHERE board_id = %s", (board_id,))
                 cur.execute("DELETE FROM links WHERE board_id = %s", (board_id,))
                 cur.execute("DELETE FROM tags WHERE board_id = %s", (board_id,))
                 cur.execute(
@@ -117,6 +142,12 @@ def index_vault(board_id: str, vault_path: Path, rebuild: bool = False) -> Index
                     (board_id,),
                 )
                 cur.execute("DELETE FROM notes WHERE board_id = %s", (board_id,))
+
+        entities_by_name: dict[str, str] = {}
+        entities_by_slug: dict[str, str] = {}
+        if match_entities:
+            with board_scope(conn, board_id) as cur:
+                entities_by_name, entities_by_slug = _load_entities(cur, board_id)
 
         disk_files = _walk_vault(vault_path)
         rel_paths = [f.relative_to(vault_path).as_posix() for f in disk_files]
@@ -157,11 +188,13 @@ def index_vault(board_id: str, vault_path: Path, rebuild: bool = False) -> Index
         # links hits links_target_note_id_fkey before the later file's
         # notes row exists.
         to_process = []
+        unchanged_rel_paths = []
         for rel_path in rel_paths:
             parsed = parsed_by_path[rel_path]
             prior = existing.get(rel_path)
             if prior is not None and prior["content_hash"] == parsed.content_hash:
                 stats.notes_unchanged += 1
+                unchanged_rel_paths.append(rel_path)
                 continue
 
             is_new = prior is None
@@ -198,6 +231,41 @@ def index_vault(board_id: str, vault_path: Path, rebuild: bool = False) -> Index
                 stats.notes_created += 1
             else:
                 stats.notes_updated += 1
+
+            if match_entities:
+                try:
+                    with board_scope(conn, board_id) as cur:
+                        _match_note_entities(
+                            cur, board_id, note_id, parsed,
+                            entities_by_name, entities_by_slug, stats,
+                        )
+                except Exception:
+                    log.exception(
+                        "vault indexer: failed to match entities for %s (board_id=%s)",
+                        rel_path, board_id,
+                    )
+
+        if match_entities and rematch_entities:
+            # Entity matching cannot live solely behind the content-hash
+            # short-circuit: a newly-seeded entity can retroactively match a
+            # note whose file never changed. parsed_by_path already holds
+            # every disk file's parse from the bulk phase above, so no
+            # re-read/re-parse is needed -- only the matching step re-runs.
+            for rel_path in unchanged_rel_paths:
+                parsed = parsed_by_path[rel_path]
+                note_id = existing[rel_path]["id"]
+                try:
+                    with board_scope(conn, board_id) as cur:
+                        _match_note_entities(
+                            cur, board_id, note_id, parsed,
+                            entities_by_name, entities_by_slug, stats,
+                        )
+                except Exception:
+                    log.exception(
+                        "vault indexer: failed to rematch entities for %s (board_id=%s)",
+                        rel_path, board_id,
+                    )
+                    continue
 
         deleted_paths = set(existing) - set(rel_paths) - unparseable
         for rel_path in deleted_paths:
@@ -333,8 +401,116 @@ def _index_note_relations(
             stats.chunks_written += 1
 
 
+def _load_entities(cur, board_id: str) -> tuple[dict[str, str], dict[str, str]]:
+    """Returns (name -> entity_id, slug(name) -> entity_id). name lookup is
+    case-sensitive (body-token matching is exact per ADR-039 action item #4);
+    slug lookup backs wikilink/documents: resolution, same normalization as
+    note-to-note links."""
+    cur.execute(
+        "SELECT id, name FROM entities WHERE board_id = %s",
+        (board_id,),
+    )
+    rows = cur.fetchall()
+    by_name = {r["name"]: r["id"] for r in rows}
+    by_slug: dict[str, str] = {}
+    for r in rows:
+        by_slug.setdefault(slugify(r["name"]), r["id"])
+    return by_name, by_slug
+
+
+def _match_note_entities(
+    cur, board_id: str, note_id: str, parsed: ParsedNote,
+    entities_by_name: dict[str, str], entities_by_slug: dict[str, str], stats: IndexStats,
+) -> None:
+    """Note<->entity matching (ADR-039 action item #4's payoff join). Exact,
+    case-sensitive whole-token match against the raw body -- industrial tag
+    names are exact strings, so a substring match on short names like "M1"
+    would flood false positives; short names are skipped for body matching
+    (wikilink/documents: matches have no length floor since they're
+    explicit). Body matching uses one-pass tokenization rather than a
+    per-entity regex scan: a plant-scale inventory is tens of thousands of
+    tags, and O(entities x body) regex scanning doesn't scale -- tokenizing
+    once and doing set-membership lookups is O(body) + O(1) per candidate.
+    Raw parsed.body (code fences included) is used deliberately, unlike tag/
+    link extraction: a tag name inside a ladder-logic snippet is a genuine
+    mention.
+    """
+    body_candidates = {
+        name: eid for name, eid in entities_by_name.items()
+        if len(name) >= _ENTITY_BODY_MATCH_MIN_LEN
+    }
+    tokens = set(_TOKEN_RE.findall(parsed.body))
+    mentions = {eid for name, eid in body_candidates.items() if name in tokens}
+
+    for link in parsed.links:
+        eid = entities_by_slug.get(slugify(link.target))
+        if eid:
+            mentions.add(eid)
+
+    # Frontmatter `documents:` is independent of wikilinks -- the most
+    # explicit, human-authored signal, so it must fire even with no wikilink
+    # or body mention present. Unresolvable entries are logged and skipped:
+    # unlike vault-to-vault links, there is no "entity appears later" case
+    # worth building a forward-reference for (entities are seeded
+    # independently of note edits).
+    documents: set[str] = set()
+    fm_documents = parsed.frontmatter.get("documents")
+    doc_names: list[str] = []
+    if isinstance(fm_documents, (list, tuple)):
+        doc_names = [str(d) for d in fm_documents]
+    elif isinstance(fm_documents, str):
+        doc_names = [fm_documents]
+
+    for doc_name in doc_names:
+        eid = entities_by_name.get(doc_name) or entities_by_slug.get(slugify(doc_name))
+        if eid:
+            documents.add(eid)
+        else:
+            log.warning(
+                "vault indexer: note %s declares documents: %r which does not "
+                "resolve to a known entity -- skipping",
+                note_id, doc_name,
+            )
+
+    # documents wins over mentions when an entity is hit both ways -- one
+    # row per (note, entity), not one per match source.
+    desired = {(eid, "documents") for eid in documents}
+    desired |= {(eid, "mentions") for eid in mentions - documents}
+
+    cur.execute(
+        "SELECT id, entity_id, link_type FROM note_entity_links "
+        "WHERE board_id = %s AND note_id = %s AND valid_until IS NULL",
+        (board_id, note_id),
+    )
+    existing_open = cur.fetchall()
+    existing_set = {(r["entity_id"], r["link_type"]) for r in existing_open}
+
+    for row in existing_open:
+        key = (row["entity_id"], row["link_type"])
+        if key not in desired:
+            cur.execute(
+                "UPDATE note_entity_links SET valid_until = now() WHERE id = %s", (row["id"],)
+            )
+            stats.entity_links_closed += 1
+
+    for entity_id, link_type in desired - existing_set:
+        cur.execute(
+            "INSERT INTO note_entity_links (board_id, note_id, entity_id, link_type) "
+            "VALUES (%s, %s, %s, %s)",
+            (board_id, note_id, entity_id, link_type),
+        )
+        stats.entity_links_created += 1
+
+
 def _delete_note(cur, board_id: str, note_id: str, rel_path: str, stats: IndexStats) -> None:
     own_slug = slugify(Path(rel_path).stem)
+
+    # note_entity_links.note_id has no cascade -- hard delete regardless of
+    # validity window, same as outgoing vault-to-vault links below (entities
+    # are never deleted by note removal, only the pointer rows are).
+    cur.execute(
+        "DELETE FROM note_entity_links WHERE board_id = %s AND note_id = %s", (board_id, note_id)
+    )
 
     # Outgoing links: FK forces a hard delete regardless of validity window.
     cur.execute(
