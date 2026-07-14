@@ -437,16 +437,17 @@ P5-Crystallize (closed)
       order-independence proven on the dedup/contradiction candidate set
       (talos/tests/test_p5_fanout.py), not a LangGraph reducer
 
-P5.5-LoopHardening (from 2026-07-12 harness/loop-engineering review — do before P6)
-  ├── Enforce max_elapsed_seconds + max_spend_usd in the read path (only max_tokens is
-  │   faithful today; max_tool_calls counts model invocations, not MCP tool calls).
-  │   Prerequisite for any automated revise loop — "loop until pass" is only safe when
-  │   bounded by attempts/time/cost.
-  ├── Bounded critic-fail → revise → re-run loop inside deliverable_node (max 2 iterations,
-  │   then escalate to gate as today). Directly improves time-to-confident-approval:
-  │   humans stop reviewing deliverables a deterministic critic already failed.
-  └── Wire retrieved rule_context into the deliverable/generation prompt (retrieved today
-      but consumed by nothing — completes the crystallize flywheel end-to-end)
+P5.5-LoopHardening — DONE 2026-07-13 (commits f2c1839 items 1+3, 87ddc65 item 2)
+  ├── [x] Enforce max_elapsed_seconds + max_spend_usd in the read path — all 4 axes now
+  │   faithful via _check_budget (axis-tagged BudgetExhaustedError, task_events row;
+  │   max_tool_calls renamed max_model_invocations; spend = output tokens + estimated
+  │   input tokens against [pricing] config).
+  ├── [x] Bounded critic-fail → revise → re-run loop inside deliverable_node
+  │   ([resources] revise_max_iterations, default 2; safety-class failures always bypass;
+  │   revise_history + revise_attempted/revise_result task_events audit trail).
+  └── [x] Wire retrieved rule_context into the generation prompt — read_node (the graph's
+      only LLM call) injects a rules block via _build_rules_prompt_block; the revise loop
+      reuses it. merge_node's rule_context stays the gate-visible audit trail.
 
 P6-Sim (scoped 2026-07-12: build the FIRST VERIFIER CRITIC, per ADR-021 — zero registered today)
   └── Rockwell-based PLC emulator via pylogix; custom library evaluation underway.
