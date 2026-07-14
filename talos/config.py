@@ -160,6 +160,10 @@ _RESOURCES_DEFAULTS: dict[str, object] = {
     "sleeptime_window": "",
     # Token budget cap for sleeptime/background work per window; 0 = no cap.
     "sleeptime_max_tokens": 0,
+    # P5.5: max automatic critic-fail -> revise attempts deliverable_node makes
+    # before falling through to the human gate with all verdicts visible.
+    # 0 disables the loop entirely (restores pre-P5.5-item-2 behavior exactly).
+    "revise_max_iterations": 2,
 }
 
 
@@ -182,9 +186,10 @@ def _load_toml_resources() -> dict[str, object]:
 def get_resources_config() -> dict[str, object]:
     """Returns {cpu_workers, embed_threads, index_type, hnsw_build_workers,
     local_llm_enabled, gate_path_priority, sleeptime_window,
-    sleeptime_max_tokens}, talos.toml [resources] over defaults. Not yet
-    consumed by any index-build code -- ADR-039 action item #5 is
-    config-loader-only at this stage."""
+    sleeptime_max_tokens, revise_max_iterations}, talos.toml [resources] over
+    defaults. Not yet consumed by any index-build code -- ADR-039 action item
+    #5 is config-loader-only at this stage. revise_max_iterations (P5.5) is
+    consumed by talos.graph.spine.deliverable_node's bounded revise loop."""
     return {**_RESOURCES_DEFAULTS, **_load_toml_resources()}
 
 

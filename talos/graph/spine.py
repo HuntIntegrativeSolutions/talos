@@ -36,11 +36,16 @@ class TaskBudget(TypedDict):
     what it actually measures. A deprecated `max_tool_calls` key is still
     accepted on construction via _normalize_budget_aliases().
 
-    P5.5 scope note: max_elapsed_seconds is only checked in read_node, the
-    graph's sole checkpoint before the human-review interrupt -- time spent
-    waiting at the gate, or looping deliverable_node<->gate_node on an edit
-    outcome, is invisible to this cap. That's task_runs.max_runtime_seconds's
-    separate, pre-existing job (heartbeat/reclaim in talos.worker).
+    P5.5 scope note: max_elapsed_seconds is checked in read_node (before the
+    human-review interrupt) and, as of P5.5 item 2, in deliverable_node's
+    bounded revise loop as well -- which means it CAN now trip after the
+    gate, on a slow edit-loop re-entry, since it measures wall-clock time
+    since task_runs.started_at regardless of how long the task sat waiting
+    for human review. This is an accepted, deliberate run-wall-clock-since-
+    claim semantic (simpler than freezing the clock across the gate wait,
+    and arguably more honest), not a scope gap. task_runs.max_runtime_seconds
+    (heartbeat/reclaim in talos.worker) remains a separate, pre-existing
+    mechanism for a stuck/dead worker, unrelated to this axis.
 
     P5.5 scope note: spent_usd prices real output tokens plus an estimated
     input-token count (len(prompt)/4, a documented approximation -- see
@@ -230,6 +235,12 @@ class SpineState(TypedDict):
     chroma_chunks: list    # single-writer: only merge_node; folded from context_branches["chroma"] for P5 to consume later
     nexus_supplemental: list  # single-writer: only merge_node; folded from context_branches["nexus_secondary"]
     rule_context: list    # single-writer: only merge_node; folded from context_branches["rules"] (P5) via format_rules_context. This is the gate-visible audit trail of retrieved rules, NOT the generation input -- read_node (P5.5) performs its own independent rules retrieval for prompt injection, since this field isn't populated yet at the point in the fan-out where read_node builds its prompt (see read_node docstring / _build_rules_prompt_block).
+    revise_history: list  # single-writer: only deliverable_node (P5.5). Audit trail of automatic
+        # critic-fail-to-revise attempts this pass: [{"attempt_no": int, "failing_critics": [str, ...],
+        # "outcome": "revised"|"no_improvement"|"gave_up_cap"|"gave_up_parse_failure"|
+        # "short_circuited_identical"|"safety_bypass"}]. Always set (empty list if the loop never
+        # engaged). Data-substrate only for now -- talos/api.py and web/gate/ are not wired to display
+        # it yet (mirrors P5.5 Part 1's deferred-UI precedent for budget_exhausted's axis field).
 
 
 # ---------------------------------------------------------------------------
@@ -655,6 +666,182 @@ def _build_rules_prompt_block(board_id: str, query_text: str) -> str:
         return ""
 
 
+def _deliverable_hash(deliverable: dict) -> str:
+    """P5.5: stable content hash for the revise loop's identical-output
+    short-circuit (a revision that reproduces the same deliverable against
+    the same failing critics wastes no further iterations)."""
+    import hashlib
+    return hashlib.sha256(json.dumps(deliverable, sort_keys=True, default=str).encode()).hexdigest()
+
+
+def _build_revision_prompt(deliverable: dict, failing: list[dict], rules_block: str) -> str:
+    """
+    P5.5: renders the failing (non-safety) critics' names + reasons + the
+    current deliverable, asking the model for a corrected deliverable in the
+    same JSON shape. Mirrors read_node's base_prompt + rules_block
+    concatenation pattern (_build_rules_prompt_block).
+    """
+    failure_lines = "\n".join(f"- {f['name']}: {f.get('reason', '')}" for f in failing)
+    base_prompt = (
+        "The following deliverable failed these critics:\n"
+        f"{failure_lines}\n\n"
+        "Current deliverable (JSON):\n"
+        f"{json.dumps(deliverable, sort_keys=True)}\n\n"
+        "Return ONLY a corrected JSON object with the same shape, addressing "
+        "the failures above. Do not include any explanation or markdown "
+        "formatting outside the JSON object."
+    )
+    return f"{base_prompt}\n\n{rules_block}" if rules_block else base_prompt
+
+
+def _parse_revised_deliverable(text: str) -> dict | None:
+    """
+    P5.5: parses the revise loop's model response into a deliverable dict.
+    Strips a wrapping ```json fenced block (models commonly add one despite
+    instructions not to) before attempting json.loads. Returns None on any
+    parse failure or non-dict result -- the caller treats that as "revision
+    attempt failed, stop the loop, keep the prior deliverable" rather than
+    crashing on malformed model output.
+    """
+    stripped = (text or "").strip()
+    if stripped.startswith("```"):
+        stripped = stripped.strip("`")
+        if stripped.startswith("json"):
+            stripped = stripped[4:]
+        stripped = stripped.strip()
+    try:
+        parsed = json.loads(stripped)
+    except (json.JSONDecodeError, TypeError):
+        return None
+    return parsed if isinstance(parsed, dict) else None
+
+
+def _revise_deliverable(
+    state: SpineState, deliverable: dict, failing: list[dict], budget: dict, warned_models: set,
+) -> dict | None:
+    """
+    P5.5: the bounded revise loop's model-invocation site (see
+    deliverable_node). Reuses resolve_model("execute") -- the ADR-018 ladder
+    slot for deliverable generation/execution, previously unused by any code
+    -- and the same call/budget-accounting pattern as read_node's model call
+    (_call_with_fallback, _price_for_model, the estimated-input-token spend
+    formula). No NEXUS tool wiring: deliverable revision doesn't need MCP
+    tool access (manifest=None/allowed_tools=[]/mcp_servers={} are all
+    null-safe in both drivers -- see talos.llm_providers.anthropic/openai_compat).
+
+    Mutates `budget` in place (exactly like read_node's local `budget` dict)
+    -- does not return a budget value; the caller diffs against its own
+    baseline snapshot at the end, same as read_node. Returns the parsed
+    revised deliverable, or None on a JSON-parse failure.
+    """
+    from talos.config import resolve_model
+
+    primary, fallback = resolve_model("execute")
+    rules_block = _build_rules_prompt_block(state["board_id"], state.get("task_body") or state["task_id"])
+    prompt = _build_revision_prompt(deliverable, failing, rules_block)
+
+    def _budget_check(tokens_so_far: int, tool_calls_so_far: int) -> None:
+        # Two-arg signature matching the driver protocol (talos/llm_providers/base.py's
+        # BudgetCheck; openai_compat's tool loop calls budget_check(tokens_so_far,
+        # tool_calls_so_far)) -- copied verbatim from read_node's own closure.
+        prospective = {
+            **budget,
+            "tokens_used": budget["tokens_used"] + tokens_so_far,
+            "model_invocations": budget["model_invocations"] + tool_calls_so_far,
+        }
+        _check_budget(state, prospective)
+
+    text, _session_id, tokens = _call_with_fallback(
+        primary, fallback, prompt=prompt,
+        resume=None, state=state,
+        allowed_tools=[], mcp_servers={}, manifest=None,
+        budget_check=_budget_check,
+    )
+
+    # Account the call's usage BEFORE attempting to parse: the tokens/spend
+    # were consumed regardless of whether the output is parseable, and the
+    # caller returns a budget delta whenever attempt_no > 0 -- accounting
+    # after the parse would silently under-count every gave_up_parse_failure
+    # attempt.
+    price = _price_for_model(primary.provider, primary.model, warned_models)
+    input_tokens_est = len(prompt) // 4
+    budget["spent_usd"] += (
+        (input_tokens_est / 1000.0) * price["input_per_1k_usd"]
+        + (tokens / 1000.0) * price["output_per_1k_usd"]
+    )
+    budget["tokens_used"] += tokens
+    budget["model_invocations"] += 1
+
+    return _parse_revised_deliverable(text)
+
+
+def _emit_task_event(board_id: str, task_id: str, run_id: int, kind: str, payload: dict) -> None:
+    """Small shared helper for one-off task_events inserts (P5.5's
+    revise_attempted/revise_result kinds), each in its own connection/
+    transaction -- mirrors the existing ad-hoc task_events INSERTs used for
+    gate_edit/budget_exhausted."""
+    conn = get_conn()
+    try:
+        with board_scope(conn, board_id) as cur:
+            cur.execute(
+                """
+                INSERT INTO task_events (board_id, task_id, run_id, kind, payload)
+                VALUES (%s, %s, %s, %s, %s::jsonb)
+                """,
+                (board_id, task_id, run_id, kind, json.dumps(payload)),
+            )
+    finally:
+        conn.close()
+
+
+def _persist_gate_results(
+    board_id: str, task_id: str, run_id: int, verdicts: list[dict], origin: dict | None,
+) -> None:
+    """
+    Insert one task_gate_results row per critic verdict, in its own
+    connection/transaction so each call commits with a distinct, strictly-
+    increasing created_at (Postgres now() is transaction-scoped -- sharing a
+    transaction across two critics-runs would give both the same created_at,
+    and v_gate_status's DISTINCT ON (task_id, critic_name) ORDER BY
+    created_at DESC would tie-break arbitrarily between a stale fail and a
+    fresh pass). Called once per run_all_critics(...) result -- the initial
+    pre-loop run and each P5.5 revise-loop attempt's re-run -- so repeated
+    critics runs are distinguished purely by created_at ordering, the same
+    zero-migration pattern the edit-loop re-entry already relies on.
+
+    origin's milestone_remediation required-downgrade (ADR-016 action item
+    #7) is applied here so every caller gets it consistently, not just the
+    original single call site.
+    """
+    if origin and origin.get("talos_origin") == "milestone_remediation":
+        persisted_verdicts = [
+            {**v, "required": False} if not v["safety_class"] else v
+            for v in verdicts
+        ]
+    else:
+        persisted_verdicts = verdicts
+
+    conn = get_conn()
+    try:
+        with board_scope(conn, board_id) as cur:
+            for v in persisted_verdicts:
+                cur.execute(
+                    """
+                    INSERT INTO task_gate_results
+                        (board_id, task_id, run_id, critic_name, required,
+                         verdict, safety_class, waivable, details)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb)
+                    """,
+                    (
+                        board_id, task_id, run_id,
+                        v["name"], v["required"], v["verdict"],
+                        v["safety_class"], v["waivable"], json.dumps(v),
+                    ),
+                )
+    finally:
+        conn.close()
+
+
 def merge_node(state: SpineState) -> dict:
     """
     Folds the P4b fan-out's context_branches into plain, single-writer fields for
@@ -761,15 +948,38 @@ def deliverable_node(state: SpineState) -> dict:
     On re-entry via the edit outcome, state["edited_deliverable"] carries the human's
     revised deliverable — critics re-run against it without a NEXUS re-read.
 
-    P5.5: this node (and gate_node) must never write state["budget"] — budget
-    is only ever contributed by the four read-fan-out branches, which run
-    once at graph start and are not re-entered by the deliverable_node<->
-    gate_node edit loop. That's what lets budget survive edit-loop re-entry
-    unchanged without extra accumulation logic (talos.graph.reducers.merge_budget's
-    full-dict-per-writer invariant assumes exactly this). A future call site
-    that re-invokes the model from here (e.g. a bounded critic-fail revise
-    loop) must contribute its own budget delta the same way read_node does,
-    not bypass the reducer.
+    P5.5 (item 2): before falling through to the gate, a bounded loop retries
+    non-safety critic failures by calling the model (resolve_model("execute"))
+    to produce a corrected deliverable, up to get_resources_config()
+    ["revise_max_iterations"] times (default 2; 0 disables the loop entirely,
+    restoring pre-item-2 behavior exactly). Safety-class critic failures
+    NEVER trigger revision — they escalate straight to the gate on the first
+    pass, per ADR-011. See the loop body below for the full outcome taxonomy
+    (revised/no_improvement/gave_up_cap/gave_up_parse_failure/
+    short_circuited_identical/safety_bypass), persisted to task_events
+    (revise_attempted/revise_result) and to state["revise_history"].
+
+    P5.5 (item 1) this node conditionally writes state["budget"] — but ONLY
+    a delta (never a running total), and ONLY when the revise loop actually
+    made at least one model call this pass. It computes that delta the exact
+    same way read_node does: mutate a local `budget` dict in place per
+    attempt, diff it against an untouched baseline snapshot taken at entry,
+    and return _budget_delta(...) of that diff. `budget` is a multi-writer
+    reducer channel (talos.graph.reducers.merge_budget) — returning a
+    running total instead of a delta would double-count against the
+    channel's existing value on every write, compounding further on each
+    edit-loop re-entry. When the loop never engages (no failures, a safety
+    failure on the first pass, or revise_max_iterations == 0), no "budget"
+    key is returned at all, so that pass is byte-identical to pre-item-2
+    behavior.
+
+    P5.5 elapsed-axis note: _check_budget's elapsed check compares
+    now() - run_started_at, which spans however long the task sat waiting at
+    the human gate. Calling it from here (as the revise loop does) means
+    max_elapsed_seconds can now trip AFTER the gate, on a slow edit-loop
+    re-entry — accepted as one consistent run-wall-clock-since-claim
+    semantic (see TaskBudget's docstring) rather than carving out a
+    gate-wait exclusion.
     """
     from talos.spans import SpanContext, emit_span
     ctx = SpanContext(board_id=state["board_id"], task_id=state["task_id"], run_id=state["run_id"])
@@ -804,51 +1014,87 @@ def deliverable_node(state: SpineState) -> dict:
     # list — every other deliverable (the overwhelming majority) makes
     # no_client_identifiers_in_shared a no-op pass (see its docstring's scope guard).
     client_identifiers = _fetch_board_client_identifiers(state["board_id"]) if is_rule_promotion else None
-    verdicts = run_all_critics(deliverable, nexus_client=None, client_identifiers=client_identifiers)
+    board_id, task_id, run_id = state["board_id"], state["task_id"], state["run_id"]
 
-    # Emit one critic span per verdict.
+    verdicts = run_all_critics(deliverable, nexus_client=None, client_identifiers=client_identifiers)
+    _persist_gate_results(board_id, task_id, run_id, verdicts, origin)
+
+    # P5.5 item 2: bounded critic-fail -> revise loop. See this node's
+    # docstring for the full outcome taxonomy / budget-delta contract.
+    from talos.config import get_resources_config
+    max_iters = get_resources_config()["revise_max_iterations"]
+
+    revise_history: list = []
+    baseline_budget = dict(state.get("budget") or default_budget())
+    budget = dict(baseline_budget)
+    warned_models: set = set()
+    prev_signature = None
+    attempt_no = 0
+
+    if max_iters > 0:  # max_iters == 0 skips this block entirely -- byte-identical to pre-item-2 behavior
+        while True:
+            failing = [v for v in verdicts if not v["passed"]]
+            if not failing:
+                break  # success, nothing to revise
+
+            if any(v["safety_class"] for v in failing):
+                # Rule 2: safety failures never trigger revision -- straight to
+                # the gate as today. attempt_no is still 0 (no attempt made) --
+                # this is the only durable record of *why* the loop never engaged.
+                revise_history.append({"attempt_no": 0, "failing_critics": [f["name"] for f in failing], "outcome": "safety_bypass"})
+                _emit_task_event(board_id, task_id, run_id, "revise_result",
+                                  {"attempt_no": 0, "outcome": "safety_bypass", "still_failing_critics": [f["name"] for f in failing]})
+                break
+
+            if attempt_no >= max_iters:
+                revise_history.append({"attempt_no": attempt_no, "failing_critics": [f["name"] for f in failing], "outcome": "gave_up_cap"})
+                _emit_task_event(board_id, task_id, run_id, "revise_result",
+                                  {"attempt_no": attempt_no, "outcome": "gave_up_cap", "still_failing_critics": [f["name"] for f in failing]})
+                break
+
+            attempt_no += 1
+            _emit_task_event(board_id, task_id, run_id, "revise_attempted",
+                              {"attempt_no": attempt_no, "failing_critics": [f["name"] for f in failing]})
+
+            _check_budget(state, budget)  # raises BudgetExhaustedError(axis=...) if already over
+            new_deliverable = _revise_deliverable(state, deliverable, failing, budget, warned_models)
+            # ^ mutates `budget` in place (exactly like read_node); returns the
+            # revised deliverable dict, or None on a JSON-parse failure.
+            if new_deliverable is None:
+                revise_history.append({"attempt_no": attempt_no, "failing_critics": [f["name"] for f in failing], "outcome": "gave_up_parse_failure"})
+                _emit_task_event(board_id, task_id, run_id, "revise_result",
+                                  {"attempt_no": attempt_no, "outcome": "gave_up_parse_failure", "still_failing_critics": [f["name"] for f in failing]})
+                break
+
+            _check_budget(state, budget)  # post-hoc check, same pattern as read_node
+
+            new_hash = _deliverable_hash(new_deliverable)
+            signature = (new_hash, frozenset(f["name"] for f in failing))
+            new_verdicts = run_all_critics(new_deliverable, nexus_client=None, client_identifiers=client_identifiers)
+            _persist_gate_results(board_id, task_id, run_id, new_verdicts, origin)
+            still_failing = [v["name"] for v in new_verdicts if not v["passed"]]
+
+            if signature == prev_signature:
+                revise_history.append({"attempt_no": attempt_no, "failing_critics": still_failing, "outcome": "short_circuited_identical"})
+                _emit_task_event(board_id, task_id, run_id, "revise_result",
+                                  {"attempt_no": attempt_no, "outcome": "short_circuited_identical", "still_failing_critics": still_failing})
+                deliverable, verdicts = new_deliverable, new_verdicts
+                break
+
+            outcome = "revised" if (not still_failing or len(still_failing) < len(failing)) else "no_improvement"
+            revise_history.append({"attempt_no": attempt_no, "failing_critics": still_failing, "outcome": outcome})
+            _emit_task_event(board_id, task_id, run_id, "revise_result",
+                              {"attempt_no": attempt_no, "outcome": outcome, "still_failing_critics": still_failing})
+
+            deliverable, verdicts, prev_signature = new_deliverable, new_verdicts, signature
+
+    # Emit one critic span per (final) verdict.
     for v in verdicts:
         emit_span(ctx, f"spine.critic.{v['name']}", payload={"passed": v.get("passed"), "verdict": v.get("verdict")})
 
-    # P4b (ADR-016 action item #7): a milestone-remediation-origin task gets a
-    # shortened gate — every non-safety critic's persisted `required` flag is
-    # downgraded to False so it becomes advisory (v_gate_status.all_required_pass
-    # ignores it). Safety critics (safety_class=True, e.g. no_live_write_in_deliverable,
-    # RT-06) are NEVER downgraded — CR-26's human-approval-still-mandatory invariant
-    # is untouched. Only the persisted rows are downgraded; `verdicts` (returned in
-    # state["critic_results"] for audit) keeps each critic's original required-ness.
-    if origin and origin.get("talos_origin") == "milestone_remediation":
-        persisted_verdicts = [
-            {**v, "required": False} if not v["safety_class"] else v
-            for v in verdicts
-        ]
-    else:
-        persisted_verdicts = verdicts
-
     conn = get_conn()
     try:
-        with board_scope(conn, state["board_id"]) as cur:
-            for v in persisted_verdicts:
-                cur.execute(
-                    """
-                    INSERT INTO task_gate_results
-                        (board_id, task_id, run_id, critic_name, required,
-                         verdict, safety_class, waivable, details)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb)
-                    """,
-                    (
-                        state["board_id"],
-                        state["task_id"],
-                        state["run_id"],
-                        v["name"],
-                        v["required"],
-                        v["verdict"],
-                        v["safety_class"],
-                        v["waivable"],
-                        json.dumps(v),
-                    ),
-                )
-
+        with board_scope(conn, board_id) as cur:
             if is_edit:
                 # Record the edit event in the audit log.
                 cur.execute(
@@ -857,9 +1103,9 @@ def deliverable_node(state: SpineState) -> dict:
                     VALUES (%s, %s, %s, 'gate_edit', %s::jsonb)
                     """,
                     (
-                        state["board_id"],
-                        state["task_id"],
-                        state["run_id"],
+                        board_id,
+                        task_id,
+                        run_id,
                         json.dumps({"approved_by": state.get("approved_by")}),
                     ),
                 )
@@ -872,23 +1118,34 @@ def deliverable_node(state: SpineState) -> dict:
                     review_entered_at = NOW()
                 WHERE id = %s AND board_id = %s
                 """,
-                (json.dumps(deliverable), state["task_id"], state["board_id"]),
+                (json.dumps(deliverable), task_id, board_id),
             )
     finally:
         conn.close()
 
-    _fire_review_email(state["board_id"], state["task_id"])
+    _fire_review_email(board_id, task_id)
 
     # Gate interrupt is semantically "task is now in review awaiting human decision."
     emit_span(ctx, "spine.gate.interrupt")
     emit_span(ctx, "spine.node.deliverable_node.exit")
 
-    return {
+    result: dict = {
         "deliverable": deliverable,
         "critic_results": verdicts,
+        "revise_history": revise_history,
         # Clear the edited_deliverable so a subsequent re-entry check is clean.
         "edited_deliverable": None,
     }
+    if attempt_no > 0:
+        # See this node's docstring: a delta, never a running total, and only
+        # returned when at least one revise attempt actually ran this pass.
+        result["budget"] = _budget_delta(
+            baseline_budget,
+            spent_usd=budget["spent_usd"] - baseline_budget["spent_usd"],
+            tokens_used=budget["tokens_used"] - baseline_budget["tokens_used"],
+            model_invocations=budget["model_invocations"] - baseline_budget["model_invocations"],
+        )
+    return result
 
 
 # ---------------------------------------------------------------------------
