@@ -84,6 +84,15 @@ def test_heartbeat_starvation_reclaim(pg_setup, admin_conn, monkeypatch):
     monkeypatch.setattr(talos.worker, "_RECLAIM_INTERVAL_S", THRESHOLD_S)
     monkeypatch.setattr(talos.worker, "TALOS_HEARTBEAT_INTERVAL_S", HEARTBEAT_S)
 
+    # P5.5: read_branch_chroma/read_branch_rules always attempt a real
+    # get_embed_fn() call regardless of stub mode (only read_node itself is
+    # stubbed here, via slow_read below) -- with no local model pre-cached,
+    # that attempt burns real seconds resolving before raising. Stubbed here
+    # so this test's own sub-second heartbeat/reclaim margins aren't at risk
+    # of that unrelated cost landing inside its timing window.
+    monkeypatch.setattr("talos.memory.pgvector_store.query_rules", lambda board_id, text, k=5: [])
+    monkeypatch.setattr("talos.memory.pgvector_store.query", lambda board_id, text, k=5: [])
+
     # 2. threading.Event blocks slow_read until the main thread is ready to release it.
     #    This eliminates the wall-clock race: the main thread sets the event only AFTER
     #    reclaim + snapshot, guaranteeing the node is still in-flight when reclaim runs.

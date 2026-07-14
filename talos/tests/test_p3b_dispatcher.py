@@ -268,7 +268,7 @@ def test_budget_hard_cap_escalates(pg_setup, admin_conn):
 
     exc = BudgetExhaustedError(
         task_id=task_id, run_id=run_id, board_id=board_id,
-        reason="max_tokens=1 exceeded",
+        reason="max_tokens=1 exceeded", axis="tokens",
     )
     _handle_budget_exhaustion(exc)
 
@@ -277,6 +277,14 @@ def test_budget_hard_cap_escalates(pg_setup, admin_conn):
         assert cur.fetchone()["status"] == "review"
         cur.execute("SELECT outcome FROM task_runs WHERE id = %s", (run_id,))
         assert cur.fetchone()["outcome"] == "budget_exhausted"
+        # P5.5: structured, gate-visible axis recorded in task_events.
+        cur.execute(
+            "SELECT payload FROM task_events WHERE task_id = %s AND kind = 'budget_exhausted'",
+            (task_id,),
+        )
+        payload = cur.fetchone()["payload"]
+        assert payload["axis"] == "tokens"
+        assert "max_tokens=1 exceeded" in payload["reason"]
 
 
 # ---------------------------------------------------------------------------

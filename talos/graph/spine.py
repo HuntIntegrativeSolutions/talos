@@ -25,35 +25,77 @@ from talos.graph.reducers import merge_budget, merge_disjoint_dicts
 
 
 class TaskBudget(TypedDict):
-    max_spend_usd: float        # hard cap; 0.0 = unlimited
-    max_tokens: int             # hard cap; 0 = unlimited
-    max_tool_calls: int         # hard cap; 0 = unlimited
-    max_elapsed_seconds: int    # hard cap; 0 = unlimited
-    soft_spend_usd: float       # soft threshold → emit span
-    spent_usd: float            # running total
-    tokens_used: int            # running total
-    tool_calls: int             # running total
+    """
+    4-axis ADR-030 budget. All hard caps are 0 = unlimited.
+
+    P5.5: max_model_invocations (formerly max_tool_calls) counts model
+    invocations (calls to call_model), not individual MCP tool calls the
+    model makes within one call -- the Agent SDK's ResultMessage exposes no
+    per-MCP-tool-call count. This is an intentional, documented proxy, not a
+    bug; the name was corrected from the misleading "max_tool_calls" to match
+    what it actually measures. A deprecated `max_tool_calls` key is still
+    accepted on construction via _normalize_budget_aliases().
+
+    P5.5 scope note: max_elapsed_seconds is only checked in read_node, the
+    graph's sole checkpoint before the human-review interrupt -- time spent
+    waiting at the gate, or looping deliverable_node<->gate_node on an edit
+    outcome, is invisible to this cap. That's task_runs.max_runtime_seconds's
+    separate, pre-existing job (heartbeat/reclaim in talos.worker).
+
+    P5.5 scope note: spent_usd prices real output tokens plus an estimated
+    input-token count (len(prompt)/4, a documented approximation -- see
+    _check_budget/read_node) against talos.config.get_pricing_config(). Exact
+    input-token counts require widening call_model's (text, session_id,
+    tokens) return contract across every driver, which is out of scope here.
+    """
+    max_spend_usd: float          # hard cap; 0.0 = unlimited
+    max_tokens: int               # hard cap; 0 = unlimited
+    max_model_invocations: int    # hard cap; 0 = unlimited (formerly max_tool_calls)
+    max_elapsed_seconds: int      # hard cap; 0 = unlimited
+    soft_spend_usd: float         # soft threshold → emit span
+    spent_usd: float              # running total
+    tokens_used: int              # running total
+    model_invocations: int        # running total (formerly tool_calls)
 
 
 def default_budget() -> TaskBudget:
     return TaskBudget(
         max_spend_usd=0.0,
         max_tokens=0,
-        max_tool_calls=0,
+        max_model_invocations=0,
         max_elapsed_seconds=0,
         soft_spend_usd=0.0,
         spent_usd=0.0,
         tokens_used=0,
-        tool_calls=0,
+        model_invocations=0,
     )
 
 
+def _normalize_budget_aliases(budget: dict) -> dict:
+    """
+    P5.5 back-compat shim: TaskBudget is a plain dict at runtime (TypedDict),
+    so a caller/fixture still constructing {**default_budget(), "max_tool_calls": N}
+    (the pre-rename key) keeps working -- folded into max_model_invocations if
+    the caller didn't also set the new key. Logs a deprecation warning once
+    per call (callers invoke this exactly once, at claim time, per task run).
+    """
+    if budget.get("max_tool_calls") and not budget.get("max_model_invocations"):
+        import logging
+        logging.getLogger(__name__).warning(
+            "TaskBudget.max_tool_calls is deprecated, use max_model_invocations "
+            "(task will still be enforced this run)"
+        )
+        budget = dict(budget)
+        budget["max_model_invocations"] = budget["max_tool_calls"]
+    return budget
+
+
 _BUDGET_LIMIT_KEYS = (
-    "max_spend_usd", "max_tokens", "max_tool_calls", "max_elapsed_seconds", "soft_spend_usd",
+    "max_spend_usd", "max_tokens", "max_model_invocations", "max_elapsed_seconds", "soft_spend_usd",
 )
 
 
-def _budget_delta(source_budget: dict, *, spent_usd: float = 0.0, tokens_used: int = 0, tool_calls: int = 0) -> dict:
+def _budget_delta(source_budget: dict, *, spent_usd: float = 0.0, tokens_used: int = 0, model_invocations: int = 0) -> dict:
     """
     Build one read branch's contribution to the multi-writer `budget` channel:
     the limit fields copied forward unchanged from `source_budget` (every
@@ -65,8 +107,92 @@ def _budget_delta(source_budget: dict, *, spent_usd: float = 0.0, tokens_used: i
     delta = {key: source_budget[key] for key in _BUDGET_LIMIT_KEYS if key in source_budget}
     delta["spent_usd"] = spent_usd
     delta["tokens_used"] = tokens_used
-    delta["tool_calls"] = tool_calls
+    delta["model_invocations"] = model_invocations
     return delta
+
+
+def _price_for_model(provider: str, model: str, warned_models: set) -> dict:
+    """
+    P5.5: look up {input_per_1k_usd, output_per_1k_usd} for a provider/model
+    pair from talos.config.get_pricing_config(). A model absent from the
+    pricing map contributes {0, 0} (never blocks max_spend_usd) and logs a
+    warning -- once per (provider, model) per caller-supplied `warned_models`
+    set, since a silent 0 that pretends to enforce a spend ceiling is worse
+    than an honest warning. Callers own `warned_models`'s lifetime (read_node
+    scopes one set per call, so this is inherently once-per-run today; a
+    future caller that invokes the model more than once per run -- e.g. a
+    bounded revise loop -- should keep reusing the same set across those
+    invocations rather than creating a fresh one each time).
+    """
+    from talos.config import get_pricing_config
+
+    key = f"{provider}:{model}"
+    price = get_pricing_config().get(key)
+    if price is None:
+        if key not in warned_models:
+            import logging
+            logging.getLogger(__name__).warning(
+                "spend ceiling cannot bind for unpriced model %s; contributing $0 to spent_usd", key
+            )
+            warned_models.add(key)
+        return {"input_per_1k_usd": 0.0, "output_per_1k_usd": 0.0}
+    return price
+
+
+def _check_budget(state: "SpineState", budget: dict) -> None:
+    """
+    P5.5: single reusable checkpoint for all four ADR-030 budget axes, called
+    from read_node's two existing check sites (mid-call and post-hoc) and
+    intended for reuse by any future call site that re-invokes the model
+    (e.g. a bounded critic-fail revise loop) so axis checks aren't
+    copy-pasted. `budget` must already reflect the totals to check against --
+    for a mid-call check that's a prospective dict with tokens_used/
+    model_invocations bumped by the in-flight call's partial usage; for a
+    post-hoc check it's the fully-accumulated budget dict itself.
+
+    Checked in a fixed order (tokens, elapsed, spend, model_invocations) so
+    behavior is deterministic when multiple axes are simultaneously over cap
+    -- raises BudgetExhaustedError(axis=...) on the first violation found.
+    """
+    from talos.errors import BudgetExhaustedError
+
+    task_id, run_id, board_id = state["task_id"], state["run_id"], state["board_id"]
+
+    if budget["max_tokens"] and budget["tokens_used"] > budget["max_tokens"]:
+        raise BudgetExhaustedError(
+            task_id=task_id, run_id=run_id, board_id=board_id,
+            reason=f"max_tokens={budget['max_tokens']} exceeded (used {budget['tokens_used']})",
+            axis="tokens",
+        )
+
+    run_started_at = state.get("run_started_at")
+    if run_started_at and budget["max_elapsed_seconds"]:
+        from datetime import datetime, timezone
+        elapsed = (datetime.now(timezone.utc) - datetime.fromisoformat(run_started_at)).total_seconds()
+        if elapsed > budget["max_elapsed_seconds"]:
+            raise BudgetExhaustedError(
+                task_id=task_id, run_id=run_id, board_id=board_id,
+                reason=f"max_elapsed_seconds={budget['max_elapsed_seconds']} exceeded (elapsed {elapsed:.0f}s)",
+                axis="elapsed",
+            )
+
+    if budget["max_spend_usd"] and budget["spent_usd"] > budget["max_spend_usd"]:
+        raise BudgetExhaustedError(
+            task_id=task_id, run_id=run_id, board_id=board_id,
+            reason=f"max_spend_usd={budget['max_spend_usd']} exceeded (spent ${budget['spent_usd']:.4f})",
+            axis="spend",
+        )
+
+    if budget["max_model_invocations"] and budget["model_invocations"] > budget["max_model_invocations"]:
+        raise BudgetExhaustedError(
+            task_id=task_id, run_id=run_id, board_id=board_id,
+            reason=(
+                f"max_model_invocations={budget['max_model_invocations']} exceeded "
+                f"(used {budget['model_invocations']}, counting model invocations, "
+                f"not individual MCP tool calls)"
+            ),
+            axis="model_invocations",
+        )
 
 
 class SpineState(TypedDict):
@@ -99,10 +225,11 @@ class SpineState(TypedDict):
     sdk_session_ids: Annotated[dict, merge_disjoint_dicts]  # multi-writer: read_node + read_branch_nexus_secondary; P3b Agent SDK continuity
     budget: Annotated[TaskBudget, merge_budget]              # multi-writer: all 3 read branches; 4-axis budget tracking (ADR-030)
     task_body: str | None             # single-writer: set by worker at claim time, never by a node; tasks.body — read_node's live-mode prompt (P3.5)
+    run_started_at: str | None  # single-writer: set by worker at claim time (task_runs.started_at, ISO string), never by a node; P5.5 elapsed-budget checkpoint
     context_branches: Annotated[dict, merge_disjoint_dicts]  # multi-writer: all 3 read branches (P4b fan-out); keyed by branch id
     chroma_chunks: list    # single-writer: only merge_node; folded from context_branches["chroma"] for P5 to consume later
     nexus_supplemental: list  # single-writer: only merge_node; folded from context_branches["nexus_secondary"]
-    rule_context: list    # single-writer: only merge_node; folded from context_branches["rules"] (P5) via format_rules_context. No execution-stage LLM prompt exists yet to consume this live -- staged for that future step.
+    rule_context: list    # single-writer: only merge_node; folded from context_branches["rules"] (P5) via format_rules_context. This is the gate-visible audit trail of retrieved rules, NOT the generation input -- read_node (P5.5) performs its own independent rules retrieval for prompt injection, since this field isn't populated yet at the point in the fan-out where read_node builds its prompt (see read_node docstring / _build_rules_prompt_block).
 
 
 # ---------------------------------------------------------------------------
@@ -172,8 +299,14 @@ def read_node(state: SpineState) -> dict:
     tools (e.g. full_plc_documentation) that write only to NEXUS's own derived-artifact
     store, never TALOS's SoR or any live processor. The session ID is stored in
     sdk_session_ids for continuity on resume (ADR-029). Also tracks and enforces the
-    ADR-030 token/tool-call budget for this call, raising BudgetExhaustedError on a hard
-    cap (P3.5).
+    ADR-030 4-axis budget for this call (tokens/elapsed/spend/model_invocations, P5.5),
+    raising BudgetExhaustedError with an axis-tagged reason on a hard cap (P3.5/P5.5).
+
+    P5.5: also performs its own independent rules retrieval to inject a
+    "Board rules learned from prior approved work" block into this call's
+    prompt (_build_rules_prompt_block) -- separate from, and does not depend
+    on, read_branch_rules/merge_node's rule_context (which arrives too late
+    for this node's own prompt build within the same fan-out superstep).
 
     P4b fan-out (RT-21): this is one of three parallel branches dispatched from
     START (see dispatch_reads); it keeps writing `nexus_result` directly and its
@@ -191,13 +324,13 @@ def read_node(state: SpineState) -> dict:
 
     sdk_session_ids = dict(state.get("sdk_session_ids") or {})
 
-    baseline_budget = dict(state.get("budget") or default_budget())
+    baseline_budget = _normalize_budget_aliases(dict(state.get("budget") or default_budget()))
     budget = dict(baseline_budget)
 
     if os.environ.get("TALOS_NEXUS_STUB") == "1":
         nexus_result = {"tag": "MOCK_TAG", "status": "confirmed"}
         sdk_session_ids["read_node"] = "stub-session-id"
-        budget["tool_calls"] += 1
+        budget["model_invocations"] += 1
         # Emit a stub llm.call span with > 0 latency so P3d tests can assert latency_ms.
         emit_span(
             ctx, "llm.call",
@@ -209,7 +342,6 @@ def read_node(state: SpineState) -> dict:
         )
     else:
         from talos.config import resolve_model, TALOS_NEXUS_URL
-        from talos.errors import BudgetExhaustedError
         from talos.llm import ModelCallError, call_model
         from talos.nexus_client import allowed_nexus_tools, load_nexus_manifest, nexus_mcp_server_config
 
@@ -220,26 +352,28 @@ def read_node(state: SpineState) -> dict:
         allowed_tools = allowed_nexus_tools(manifest)
         mcp_servers = {"nexus": nexus_mcp_server_config(TALOS_NEXUS_URL)}
 
+        # Warned-once state for unpriced-model spend warnings (P5.5) — scoped
+        # to this read_node call, which runs exactly once per graph run today.
+        warned_models: set = set()
+
         def _budget_check(tokens_so_far: int, tool_calls_so_far: int) -> None:
             # Read-only check against the current budget snapshot — mutation
             # still happens exactly once, post-hoc, below. Only drivers with
             # their own tool loop (openai_compat) ever call this; the
             # anthropic driver's behavior is unchanged (post-hoc check only).
-            total_tokens = budget["tokens_used"] + tokens_so_far
-            total_calls = budget["tool_calls"] + tool_calls_so_far
-            if budget["max_tokens"] and total_tokens > budget["max_tokens"]:
-                raise BudgetExhaustedError(
-                    task_id=state["task_id"], run_id=state["run_id"], board_id=board_id,
-                    reason=f"max_tokens={budget['max_tokens']} exceeded mid-call (used {total_tokens})",
-                )
-            if budget["max_tool_calls"] and total_calls > budget["max_tool_calls"]:
-                raise BudgetExhaustedError(
-                    task_id=state["task_id"], run_id=state["run_id"], board_id=board_id,
-                    reason=f"max_tool_calls={budget['max_tool_calls']} exceeded mid-call (used {total_calls})",
-                )
+            prospective = {
+                **budget,
+                "tokens_used": budget["tokens_used"] + tokens_so_far,
+                "model_invocations": budget["model_invocations"] + tool_calls_so_far,
+            }
+            _check_budget(state, prospective)
 
         resume_id = sdk_session_ids.get("read_node")
-        prompt = state.get("task_body") or f"Fetch NEXUS context for task {state['task_id']}"
+        base_prompt = state.get("task_body") or f"Fetch NEXUS context for task {state['task_id']}"
+        rules_query_text = state.get("task_body") or state["task_id"]  # matches read_branch_rules' query text
+        rules_block = _build_rules_prompt_block(board_id, rules_query_text)
+        prompt = f"{base_prompt}\n\n{rules_block}" if rules_block else base_prompt
+
         text, session_id, tokens = _call_with_fallback(
             primary, fallback, prompt=prompt,
             resume=resume_id, state=state,
@@ -249,33 +383,35 @@ def read_node(state: SpineState) -> dict:
         sdk_session_ids["read_node"] = session_id
         nexus_result = {"tag": text or "UNKNOWN", "status": "confirmed"}
 
-        # ADR-030 budget tracking (P3.5): accumulate this call's usage and
-        # enforce the hard caps. Soft-threshold handling is unaffected.
+        # ADR-030 budget tracking (P3.5/P5.5): accumulate this call's usage
+        # and enforce all four hard caps via _check_budget. Soft-threshold
+        # handling is unaffected.
         #
-        # tool_calls here counts model invocations (calls to call_model), not
-        # individual MCP tool invocations the model makes within one call — the
-        # SDK's ResultMessage does not expose a per-MCP-tool-call count. Only
-        # max_tokens is a faithfully-enforced cap; max_tool_calls is tracked
-        # against this coarser proxy and will under-count real tool-call volume.
+        # Spend prices real output tokens (`tokens`) plus an *estimated* input
+        # token count -- len(prompt)/4, a chars-per-token approximation (same
+        # spirit as talos.memory.chunking's word-count approximation, not a
+        # real tokenizer) -- because the anthropic driver does not currently
+        # return an exact input/prompt token count (only output tokens). This
+        # was chosen over output-only pricing: on documentation tasks the
+        # input side (NEXUS context, rules block, task body) commonly
+        # dominates 5-10x, which would make max_spend_usd nearly meaningless.
+        # Exact input counts require widening call_model's (text, session_id,
+        # tokens) return contract across every driver -- out of scope here.
+        price = _price_for_model(primary.provider, primary.model, warned_models)
+        input_tokens_est = len(prompt) // 4
+        budget["spent_usd"] += (
+            (input_tokens_est / 1000.0) * price["input_per_1k_usd"]
+            + (tokens / 1000.0) * price["output_per_1k_usd"]
+        )
         budget["tokens_used"] += tokens
-        budget["tool_calls"] += 1
-        if budget["max_tokens"] and budget["tokens_used"] > budget["max_tokens"]:
-            raise BudgetExhaustedError(
-                task_id=state["task_id"], run_id=state["run_id"], board_id=board_id,
-                reason=f"max_tokens={budget['max_tokens']} exceeded (used {budget['tokens_used']})",
-            )
-        if budget["max_tool_calls"] and budget["tool_calls"] > budget["max_tool_calls"]:
-            raise BudgetExhaustedError(
-                task_id=state["task_id"], run_id=state["run_id"], board_id=board_id,
-                reason=f"max_tool_calls={budget['max_tool_calls']} exceeded (used {budget['tool_calls']}, "
-                       f"counting model invocations, not individual MCP tool calls)",
-            )
+        budget["model_invocations"] += 1
+        _check_budget(state, budget)
 
     delta_budget = _budget_delta(
         baseline_budget,
         spent_usd=budget["spent_usd"] - baseline_budget["spent_usd"],
         tokens_used=budget["tokens_used"] - baseline_budget["tokens_used"],
-        tool_calls=budget["tool_calls"] - baseline_budget["tool_calls"],
+        model_invocations=budget["model_invocations"] - baseline_budget["model_invocations"],
     )
 
     emit_span(ctx, "spine.node.read_node.exit")
@@ -334,7 +470,7 @@ def read_branch_nexus_secondary(state: SpineState) -> dict:
         contribution = {
             "context_branches": {"nexus_secondary": result},
             "sdk_session_ids": {"nexus_secondary": "stub-session-id-secondary"},
-            "budget": _budget_delta(source_budget, tool_calls=1),
+            "budget": _budget_delta(source_budget, model_invocations=1),
         }
     else:
         contribution = {"budget": _budget_delta(source_budget)}
@@ -370,7 +506,11 @@ def read_branch_chroma(state: SpineState) -> dict:
     emit_span(ctx, "spine.node.read_branch_chroma.exit")
     return {
         "context_branches": {"chroma": {"chunks": chunks}},
-        "budget": _budget_delta(source_budget, tool_calls=1),
+        # P5.5: contributes 0 model_invocations — a vector-store query is not
+        # a model invocation. Under the pre-rename "tool_calls" axis this
+        # branch counted 1; keeping that after the rename would trip
+        # max_model_invocations early for calls that never touched a model.
+        "budget": _budget_delta(source_budget),
     }
 
 
@@ -404,7 +544,8 @@ def read_branch_rules(state: SpineState) -> dict:
     emit_span(ctx, "spine.node.read_branch_rules.exit")
     return {
         "context_branches": {"rules": {"rules": rules}},
-        "budget": _budget_delta(source_budget, tool_calls=1),
+        # P5.5: 0 model_invocations — same reasoning as read_branch_chroma.
+        "budget": _budget_delta(source_budget),
     }
 
 
@@ -417,10 +558,11 @@ RULE_CONTEXT_HEADER = (
 def format_rules_context(rules: list[dict]) -> list[dict]:
     """Pure formatter: labels each retrieved rule with rule_type, verified
     flag, and age (created_at) so a consumer can distinguish a verified rule
-    from an unverified extraction. Staged for a future execution-stage prompt
-    (deliverable_node builds no live execution prompt today) -- that future
-    prompt builder should prepend RULE_CONTEXT_HEADER before this list's
-    content."""
+    from an unverified extraction. Used by merge_node to populate the
+    gate-visible state["rule_context"] audit trail, and (P5.5) reused by
+    read_node's own independent rules retrieval (_build_rules_prompt_block)
+    for prompt injection -- that future prompt builder should prepend
+    RULE_CONTEXT_HEADER before this list's content."""
     out = []
     for r in rules:
         meta = r.get("metadata") or {}
@@ -432,6 +574,85 @@ def format_rules_context(rules: list[dict]) -> list[dict]:
             "distance": r.get("distance"),
         })
     return out
+
+
+RULES_PROMPT_BLOCK_HEADER = "Board rules learned from prior approved work:"
+
+
+def _truncate_rules_to_token_cap(labeled_rules: list[dict], max_tokens: int) -> list[dict]:
+    """
+    P5.5: whole-rule truncation only (never mid-rule) using the same
+    whitespace word-count approximation as talos.memory.chunking's
+    max_tokens splitting (no tokenizer dep, by convention -- see
+    chunking.py). 0 = unlimited. Always keeps at least the first rule even if
+    it alone exceeds the cap -- but logs a warning when that happens, since a
+    >max_tokens single "rule" is a crystallize-quality smell (rules should be
+    compact facts) and this is how it'll get noticed.
+    """
+    if not max_tokens:
+        return labeled_rules
+    out: list[dict] = []
+    budget = max_tokens
+    for r in labeled_rules:
+        n = len((r.get("content") or "").split())
+        if not out and n > max_tokens:
+            import logging
+            logging.getLogger(__name__).warning(
+                "a single rule (%d words) exceeds rule_context_max_tokens=%d on its own; "
+                "including it anyway, uncapped -- rules should be compact facts",
+                n, max_tokens,
+            )
+            out.append(r)
+            budget = 0
+            continue
+        if n > budget and out:
+            break
+        out.append(r)
+        budget -= n
+        if budget <= 0:
+            break
+    return out
+
+
+def _build_rules_prompt_block(board_id: str, query_text: str) -> str:
+    """
+    P5.5: read_node's own rules retrieval for prompt injection -- independent
+    of read_branch_rules/merge_node's state["rule_context"] (which arrives
+    too late for read_node's own prompt build within the same fan-out
+    superstep; see SpineState/read_node docstrings). One extra, cheap vector
+    query; deliberately not deduped against read_branch_rules' identical
+    query, to avoid coupling the two paths or reordering the P4b fan-out.
+
+    Excludes superseded/rejected rules via a Postgres cross-check
+    (talos.memory.pgvector_store.exclude_superseded_and_rejected) -- necessary
+    because `superseded_by` is never embedded in vector-store metadata (only
+    the Postgres `rules.superseded_by` column is updated on supersede).
+
+    Degrades to "" on any failure (missing embedding model, DB down, empty
+    result) or when zero rules remain after filtering/truncation -- never
+    blocks the read, and never emits an empty header.
+    """
+    try:
+        from talos.config import get_memory_config
+        from talos.memory import get_store
+        from talos.memory.pgvector_store import exclude_superseded_and_rejected
+
+        memory_config = get_memory_config()
+        raw = get_store().query_rules(board_id, query_text, k=memory_config["retrieval_k"])
+        raw = exclude_superseded_and_rejected(board_id, raw)
+        labeled = format_rules_context(raw)
+        labeled = _truncate_rules_to_token_cap(labeled, memory_config["rule_context_max_tokens"])
+        if not labeled:
+            return ""
+        lines = "\n".join(f"- {r['content']}" for r in labeled)
+        return f"{RULES_PROMPT_BLOCK_HEADER}\n{lines}"
+    except Exception:
+        import logging
+        logging.getLogger(__name__).warning(
+            "read_node rules prompt-injection failed for board %s; degrading to no rules block",
+            board_id,
+        )
+        return ""
 
 
 def merge_node(state: SpineState) -> dict:
@@ -539,6 +760,16 @@ def deliverable_node(state: SpineState) -> dict:
 
     On re-entry via the edit outcome, state["edited_deliverable"] carries the human's
     revised deliverable — critics re-run against it without a NEXUS re-read.
+
+    P5.5: this node (and gate_node) must never write state["budget"] — budget
+    is only ever contributed by the four read-fan-out branches, which run
+    once at graph start and are not re-entered by the deliverable_node<->
+    gate_node edit loop. That's what lets budget survive edit-loop re-entry
+    unchanged without extra accumulation logic (talos.graph.reducers.merge_budget's
+    full-dict-per-writer invariant assumes exactly this). A future call site
+    that re-invokes the model from here (e.g. a bounded critic-fail revise
+    loop) must contribute its own budget delta the same way read_node does,
+    not bypass the reducer.
     """
     from talos.spans import SpanContext, emit_span
     ctx = SpanContext(board_id=state["board_id"], task_id=state["task_id"], run_id=state["run_id"])

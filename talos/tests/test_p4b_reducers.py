@@ -63,10 +63,10 @@ def test_merge_disjoint_dicts_empty_and_none_edges():
 def _delta(baseline, spent=0.0, tokens=0, calls=0):
     return {
         **{k: baseline[k] for k in (
-            "max_spend_usd", "max_tokens", "max_tool_calls",
+            "max_spend_usd", "max_tokens", "max_model_invocations",
             "max_elapsed_seconds", "soft_spend_usd",
         )},
-        "spent_usd": spent, "tokens_used": tokens, "tool_calls": calls,
+        "spent_usd": spent, "tokens_used": tokens, "model_invocations": calls,
     }
 
 
@@ -79,7 +79,7 @@ def test_merge_budget_commutative():
     assert left == right
     assert left["spent_usd"] == 3.0
     assert left["tokens_used"] == 30
-    assert left["tool_calls"] == 2
+    assert left["model_invocations"] == 2
 
 
 def test_merge_budget_associative():
@@ -88,7 +88,7 @@ def test_merge_budget_associative():
     left_assoc = merge_budget(merge_budget(a, b), c)
     right_assoc = merge_budget(a, merge_budget(b, c))
     assert left_assoc == right_assoc
-    assert left_assoc["tool_calls"] == 3
+    assert left_assoc["model_invocations"] == 3
 
 
 def test_merge_budget_none_and_zero_edges():
@@ -96,14 +96,14 @@ def test_merge_budget_none_and_zero_edges():
     assert merge_budget(None, baseline) == baseline
     assert merge_budget(baseline, None) == baseline
     merged = merge_budget(baseline, _delta(baseline))
-    assert merged["tool_calls"] == baseline["tool_calls"]
+    assert merged["model_invocations"] == baseline["model_invocations"]
 
 
 def test_merge_budget_sums_across_three_simulated_branches_limits_unchanged():
     baseline = {**default_budget(), "max_tokens": 100}
     branches = [_delta(baseline, calls=1), _delta(baseline, calls=1), _delta(baseline, calls=1)]
     merged = functools.reduce(merge_budget, branches, baseline)
-    assert merged["tool_calls"] == 3
+    assert merged["model_invocations"] == 3
     assert merged["max_tokens"] == 100  # limit field untouched by branch deltas
 
 
@@ -119,7 +119,7 @@ def test_merge_budget_is_commutative_even_when_a_bare_delta_is_left_operand():
     full_delta = _delta(baseline, calls=1)
     merged = merge_budget(full_delta, baseline)  # bare-shaped delta as `left`
     assert merged["max_tokens"] == 500
-    assert merged["tool_calls"] == baseline["tool_calls"] + 1
+    assert merged["model_invocations"] == baseline["model_invocations"] + 1
 
 
 # ---------------------------------------------------------------------------
@@ -134,7 +134,8 @@ def test_read_branch_chroma_degrades_to_empty_on_embedding_failure(monkeypatch):
     state = {"board_id": "b", "task_id": "t", "run_id": 0, "task_body": None}
     result = read_branch_chroma(state)
     assert result["context_branches"] == {"chroma": {"chunks": []}}
-    assert result["budget"]["tool_calls"] == 1
+    # P5.5: vector queries are not model invocations — this branch contributes 0.
+    assert result["budget"]["model_invocations"] == 0
     assert result["budget"]["spent_usd"] == 0.0
     assert result["budget"]["tokens_used"] == 0
     assert result["budget"]["max_tokens"] == default_budget()["max_tokens"]
@@ -178,7 +179,7 @@ def test_three_branch_order_independence_integration():
     assert ctx1 == ctx2
     assert sids1 == sids2
     assert bud1 == bud2
-    assert bud1["tool_calls"] == 3
+    assert bud1["model_invocations"] == 3
     assert bud1["tokens_used"] == 8
 
 
@@ -258,8 +259,9 @@ def test_full_graph_invoke_stub_mode_end_to_end(pg_setup, admin_conn, monkeypatc
 
     assert state["nexus_result"] == {"tag": "MOCK_TAG", "status": "confirmed"}
     assert state["deliverable"]["citations"][0]["status"] == "confirmed"
-    assert state["budget"]["tool_calls"] == 4, (
-        f"expected all 4 branches' deltas summed, got {state['budget']}"
+    assert state["budget"]["model_invocations"] == 2, (
+        "expected read_node + nexus_secondary stub model calls only (chroma/rules "
+        f"vector queries contribute 0 — P5.5), got {state['budget']}"
     )
     assert state["sdk_session_ids"]["read_node"] == "stub-session-id"
     assert state["sdk_session_ids"]["nexus_secondary"] == "stub-session-id-secondary"

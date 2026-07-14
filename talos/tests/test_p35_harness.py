@@ -33,6 +33,23 @@ from talos.worker import (
 )
 
 
+@pytest.fixture(scope="module", autouse=True)
+def _stub_embedding_backed_reads_module_wide():
+    """
+    P5.5: read_branch_chroma / read_node's rules-prompt-injection query
+    always attempt a real get_embed_fn() call regardless of stub mode --
+    without a local embedding model pre-downloaded, that raises after a real
+    (non-instant, network-dependent) resolution attempt. Stubbed module-wide
+    so every live-mode claim_and_run() call in this file stays fast and
+    network-independent, not just the tests that care about rules content.
+    """
+    mp = pytest.MonkeyPatch()
+    mp.setattr("talos.memory.pgvector_store.query_rules", lambda board_id, text, k=5: [])
+    mp.setattr("talos.memory.pgvector_store.query", lambda board_id, text, k=5: [])
+    yield
+    mp.undo()
+
+
 def _seed_board_and_task(cur, board_id: str, task_id: str) -> None:
     cur.execute(
         "INSERT INTO boards (id, name) VALUES (%s, %s) ON CONFLICT DO NOTHING",
@@ -52,7 +69,9 @@ def _seed_board_and_task(cur, board_id: str, task_id: str) -> None:
 def nexus_live_mode(monkeypatch):
     """Force read_node's non-stub branch without hitting the network — the
     NEXUS manifest is loaded from disk and talos.llm.call_model is mocked by
-    each test below."""
+    each test below. read_branch_chroma / read_node's rules-prompt-injection
+    query are stubbed for the whole module by
+    _stub_embedding_backed_reads_module_wide above."""
     monkeypatch.delenv("TALOS_NEXUS_STUB", raising=False)
 
 
@@ -231,6 +250,8 @@ def test_budget_hard_cap_end_to_end(pg_setup, admin_conn, nexus_live_mode):
         with pytest.raises(BudgetExhaustedError) as excinfo:
             claim_and_run(board_id, task_id, initial_budget=tiny_budget)
 
+    assert excinfo.value.axis == "tokens"
+
     # Mirrors _worker_slot's except-clause handling of a real raised
     # BudgetExhaustedError (worker.py) — not a directly-constructed exception.
     _handle_budget_exhaustion(excinfo.value)
@@ -245,3 +266,183 @@ def test_budget_hard_cap_end_to_end(pg_setup, admin_conn, nexus_live_mode):
         row = cur.fetchone()
         assert row["outcome"] == "budget_exhausted"
         assert row["attempt_no"] == 1, "budget exhaustion must not increment attempt_no"
+        # P5.5: structured, gate-visible axis recorded in task_events.
+        cur.execute(
+            "SELECT payload FROM task_events WHERE task_id = %s AND kind = 'budget_exhausted'",
+            (task_id,),
+        )
+        assert cur.fetchone()["payload"]["axis"] == "tokens"
+
+
+# ---------------------------------------------------------------------------
+# P5.5 — elapsed-time hard cap, end-to-end
+# ---------------------------------------------------------------------------
+
+def test_budget_elapsed_cap_end_to_end(pg_setup, admin_conn, nexus_live_mode):
+    tiny_budget: TaskBudget = {**default_budget(), "max_elapsed_seconds": 1}
+
+    def slow_call_model(model, prompt, resume=None, *, span_ctx=None, allowed_tools=None,
+                        mcp_servers=None, manifest=None, budget_check=None, board_id=None):
+        time.sleep(1.2)  # exceeds max_elapsed_seconds=1
+        return "response", "session-1", 5
+
+    board_id, task_id = "p55-elapsed-board", "p55-elapsed-task"
+    with admin_conn.cursor() as cur:
+        _seed_board_and_task(cur, board_id, task_id)
+    admin_conn.commit()
+
+    with mock.patch.object(talos.llm, "call_model", slow_call_model):
+        with pytest.raises(BudgetExhaustedError) as excinfo:
+            claim_and_run(board_id, task_id, initial_budget=tiny_budget)
+
+    assert excinfo.value.axis == "elapsed"
+
+    # Mirrors _worker_slot's except-clause handling (worker.py) -- also
+    # prevents this test's task_runs row from being left in a permanently
+    # 'running'/ended_at-IS-NULL state, which would otherwise be a live
+    # target for any *later* test's reclaim_dead_workers() call (that scan is
+    # global, not board-scoped -- see test_p35_heartbeat_starvation.py).
+    _handle_budget_exhaustion(excinfo.value)
+
+
+# ---------------------------------------------------------------------------
+# P5.5 — spend hard cap, end-to-end (real + estimated-input pricing)
+# ---------------------------------------------------------------------------
+
+def test_budget_spend_cap_end_to_end(pg_setup, admin_conn, nexus_live_mode, monkeypatch):
+    from talos.config import resolve_model
+
+    primary, _fallback = resolve_model("research")
+    monkeypatch.setattr(
+        "talos.config.get_pricing_config",
+        lambda: {f"{primary.provider}:{primary.model}": {"input_per_1k_usd": 100.0, "output_per_1k_usd": 100.0}},
+    )
+    tiny_budget: TaskBudget = {**default_budget(), "max_spend_usd": 0.01}
+
+    def big_call_model(model, prompt, resume=None, *, span_ctx=None, allowed_tools=None,
+                       mcp_servers=None, manifest=None, budget_check=None, board_id=None):
+        return "response", "session-1", 1000
+
+    board_id, task_id = "p55-spend-board", "p55-spend-task"
+    with admin_conn.cursor() as cur:
+        _seed_board_and_task(cur, board_id, task_id)
+    admin_conn.commit()
+
+    with mock.patch.object(talos.llm, "call_model", big_call_model):
+        with pytest.raises(BudgetExhaustedError) as excinfo:
+            claim_and_run(board_id, task_id, initial_budget=tiny_budget)
+
+    assert excinfo.value.axis == "spend"
+
+    # See test_budget_elapsed_cap_end_to_end's comment -- avoids leaving an
+    # orphaned 'running' task_runs row for a later test's global reclaim scan.
+    _handle_budget_exhaustion(excinfo.value)
+
+
+def test_budget_spend_counts_estimated_input_tokens(pg_setup, admin_conn, nexus_live_mode, monkeypatch):
+    """
+    spent_usd must reflect both the len(prompt)/4 input estimate and the real
+    output-token count -- not output-only pricing, which would under-count
+    real spend 5-10x on documentation tasks where input dominates (P5.5).
+    """
+    from talos.config import resolve_model
+
+    primary, _fallback = resolve_model("research")
+    price = {"input_per_1k_usd": 1.0, "output_per_1k_usd": 1.0}
+    monkeypatch.setattr(
+        "talos.config.get_pricing_config",
+        lambda: {f"{primary.provider}:{primary.model}": price},
+    )
+    monkeypatch.setattr("talos.memory.pgvector_store.query_rules", lambda board_id, text, k=5: [])
+
+    long_task_body = "x " * 4000  # long input, small output — input must dominate spend
+
+    def small_output_call_model(model, prompt, resume=None, *, span_ctx=None, allowed_tools=None,
+                                mcp_servers=None, manifest=None, budget_check=None, board_id=None):
+        return "ok", "session-1", 10  # tiny output-token count
+
+    board_id, task_id = "p55-spend-input-board", "p55-spend-input-task"
+    with admin_conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO boards (id, name) VALUES (%s, %s) ON CONFLICT DO NOTHING",
+            (board_id, f"board-{board_id}"),
+        )
+        cur.execute(
+            "INSERT INTO tasks (id, board_id, title, status, body) "
+            "VALUES (%s, %s, 'test task', 'ready', %s) ON CONFLICT DO NOTHING",
+            (task_id, board_id, long_task_body),
+        )
+    admin_conn.commit()
+
+    # Cap chosen so output-only pricing could NOT trip it: output spend is
+    # (10/1000)*1.0 == $0.01 < $0.50, while the input estimate alone is
+    # (len(prompt)//4)/1000 * 1.0 == $2.00 > $0.50. If the input estimate
+    # were dropped from pricing, no exception would be raised and this test
+    # would fail — unlike an arithmetic-only assertion on the fixture.
+    prompt_len = len(long_task_body)  # rules block is empty, so prompt == task_body
+    expected_input_spend = (prompt_len // 4) / 1000.0 * price["input_per_1k_usd"]
+    assert expected_input_spend > 0.5, "test fixture didn't make input dominate — fix the fixture"
+
+    with mock.patch.object(talos.llm, "call_model", small_output_call_model):
+        with pytest.raises(BudgetExhaustedError) as excinfo:
+            claim_and_run(board_id, task_id, initial_budget={**default_budget(), "max_spend_usd": 0.5})
+
+    assert excinfo.value.axis == "spend"
+
+    # See test_budget_elapsed_cap_end_to_end's comment -- avoids leaving an
+    # orphaned 'running' task_runs row for a later test's global reclaim scan.
+    _handle_budget_exhaustion(excinfo.value)
+
+
+# ---------------------------------------------------------------------------
+# P5.5 — legacy max_tool_calls alias
+# ---------------------------------------------------------------------------
+
+def test_max_tool_calls_legacy_alias_folds_into_max_model_invocations():
+    from talos.graph.spine import _normalize_budget_aliases
+
+    legacy = {**default_budget(), "max_tool_calls": 5}
+    del legacy["max_model_invocations"]
+    normalized = _normalize_budget_aliases(legacy)
+    assert normalized["max_model_invocations"] == 5
+
+
+def test_max_tool_calls_legacy_alias_does_not_override_explicit_new_key():
+    legacy = {**default_budget(), "max_tool_calls": 5, "max_model_invocations": 9}
+    from talos.graph.spine import _normalize_budget_aliases
+
+    normalized = _normalize_budget_aliases(legacy)
+    assert normalized["max_model_invocations"] == 9
+
+
+# ---------------------------------------------------------------------------
+# P5.5 — _check_budget helper covers all four axes directly
+# ---------------------------------------------------------------------------
+
+def test_check_budget_helper_covers_all_four_axes():
+    import datetime as _dt
+
+    from talos.graph.spine import _check_budget
+
+    state = {"task_id": "t", "run_id": 1, "board_id": "b", "run_started_at": None}
+
+    with pytest.raises(BudgetExhaustedError) as exc:
+        _check_budget(state, {**default_budget(), "max_tokens": 1, "tokens_used": 2})
+    assert exc.value.axis == "tokens"
+
+    long_ago = (_dt.datetime.now(_dt.timezone.utc) - _dt.timedelta(seconds=100)).isoformat()
+    elapsed_state = {**state, "run_started_at": long_ago}
+    with pytest.raises(BudgetExhaustedError) as exc:
+        _check_budget(elapsed_state, {**default_budget(), "max_elapsed_seconds": 1})
+    assert exc.value.axis == "elapsed"
+
+    with pytest.raises(BudgetExhaustedError) as exc:
+        _check_budget(state, {**default_budget(), "max_spend_usd": 0.01, "spent_usd": 0.02})
+    assert exc.value.axis == "spend"
+
+    with pytest.raises(BudgetExhaustedError) as exc:
+        _check_budget(state, {**default_budget(), "max_model_invocations": 1, "model_invocations": 2})
+    assert exc.value.axis == "model_invocations"
+
+    # Passing budget never raises.
+    _check_budget(state, default_budget())

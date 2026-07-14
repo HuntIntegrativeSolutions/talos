@@ -88,6 +88,10 @@ _MEMORY_DEFAULTS: dict[str, object] = {
     # a follow-up once pgvector is proven in production (see ADR-039's action
     # item list).
     "backend": "pgvector",
+    # P5.5: whole-rule token cap for read_node's rules prompt-injection block
+    # (talos.graph.spine._build_rules_prompt_block). Whitespace word-count
+    # approximation (see talos.memory.chunking), not a real tokenizer -- 0 = unlimited.
+    "rule_context_max_tokens": 1000,
 }
 
 
@@ -107,9 +111,9 @@ def _load_toml_memory() -> dict[str, str]:
 
 def get_memory_config() -> dict[str, object]:
     """Returns {embedding_provider, embedding_model, retrieval_k,
-    embedding_dimension, backend}, talos.toml [memory] over defaults.
-    retrieval_k (P5) is the default k for the spine's rules read branch
-    (talos.graph.spine.read_branch_rules)."""
+    embedding_dimension, backend, rule_context_max_tokens}, talos.toml
+    [memory] over defaults. retrieval_k (P5) is the default k for the spine's
+    rules read branch (talos.graph.spine.read_branch_rules)."""
     return {**_MEMORY_DEFAULTS, **_load_toml_memory()}
 
 
@@ -182,6 +186,41 @@ def get_resources_config() -> dict[str, object]:
     consumed by any index-build code -- ADR-039 action item #5 is
     config-loader-only at this stage."""
     return {**_RESOURCES_DEFAULTS, **_load_toml_resources()}
+
+
+# P5.5: per-model USD pricing for ADR-030's max_spend_usd axis. Keys are
+# "{provider}:{model}" (matching talos.llm_providers.base.ModelRef). These are
+# placeholder public-list-price approximations, not verified against any
+# actual billing contract -- override via talos.toml [pricing] before relying
+# on spent_usd for a real enforcement decision. A model absent from this map
+# prices at {0, 0} (spend.py's read_node logs a once-per-run warning rather
+# than silently pretending the ceiling is enforced -- see talos.graph.spine).
+_PRICING_DEFAULTS: dict[str, dict[str, float]] = {
+    "anthropic:claude-haiku-4-5-20251001": {"input_per_1k_usd": 0.0008, "output_per_1k_usd": 0.004},
+    "anthropic:claude-sonnet-4-6":         {"input_per_1k_usd": 0.003,  "output_per_1k_usd": 0.015},
+    "anthropic:claude-opus-4-8":           {"input_per_1k_usd": 0.015,  "output_per_1k_usd": 0.075},
+}
+
+
+def _load_toml_pricing() -> dict[str, dict[str, float]]:
+    """talos.toml [pricing] section (P5.5). Absent-file/parse-failure handling
+    mirrors _load_toml_models() exactly."""
+    if not _TOML_PATH.exists():
+        return {}
+    try:
+        with open(_TOML_PATH, "rb") as f:
+            data = tomllib.load(f)
+        return data.get("pricing", {})
+    except Exception:
+        log.warning("talos.toml could not be parsed; using hardcoded pricing defaults")
+        return {}
+
+
+def get_pricing_config() -> dict[str, dict[str, float]]:
+    """Returns {"{provider}:{model}": {input_per_1k_usd, output_per_1k_usd}},
+    talos.toml [pricing] over defaults. Consumed by talos.graph.spine.read_node
+    to price ADR-030's max_spend_usd axis."""
+    return {**_PRICING_DEFAULTS, **_load_toml_pricing()}
 
 
 def resolve_model(

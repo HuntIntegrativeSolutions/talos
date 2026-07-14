@@ -23,7 +23,7 @@ import threading
 
 from talos.db import board_scope, get_conn, get_system_conn
 from talos.errors import BudgetExhaustedError, ModelFailureError
-from talos.graph.spine import SpineState, build_graph, default_budget
+from talos.graph.spine import SpineState, _normalize_budget_aliases, build_graph, default_budget
 
 log = logging.getLogger(__name__)
 
@@ -204,15 +204,19 @@ def claim_and_run(board_id: str, task_id: str, graph=None, initial_budget=None) 
             attempt_no: int = cur.fetchone()["next_attempt"]
 
             # 3. INSERT task_runs row — copy max_runtime_seconds from task (ADR-020).
+            # RETURNING started_at (P5.5): feeds SpineState.run_started_at, the
+            # elapsed-budget checkpoint's clock start (talos.graph.spine._check_budget).
             cur.execute(
                 """
                 INSERT INTO task_runs (board_id, task_id, status, attempt_no, max_runtime_seconds)
                 VALUES (%s, %s, 'running', %s, %s)
-                RETURNING id
+                RETURNING id, started_at
                 """,
                 (board_id, task_id, attempt_no, task.get("max_runtime_seconds")),
             )
-            run_id: int = cur.fetchone()["id"]
+            run_row = cur.fetchone()
+            run_id: int = run_row["id"]
+            run_started_at: str = run_row["started_at"].isoformat()
 
             # 4. Mint session key (ADR-010).
             session_key = f"task:{board_id}:{task_id}:{attempt_no}"
@@ -250,8 +254,11 @@ def claim_and_run(board_id: str, task_id: str, graph=None, initial_budget=None) 
         "edited_deliverable": None,
         "gate_justification": None,
         "sdk_session_ids": {},
-        "budget": initial_budget if initial_budget is not None else default_budget(),
+        "budget": _normalize_budget_aliases(
+            initial_budget if initial_budget is not None else default_budget()
+        ),
         "task_body": task.get("body"),
+        "run_started_at": run_started_at,
         "context_branches": {},
         "chroma_chunks": [],
         "nexus_supplemental": [],
@@ -317,6 +324,8 @@ async def _worker_slot(slot_id: int, graph, board_id: str, task_id: str | None =
 
 
 def _handle_budget_exhaustion(exc: BudgetExhaustedError) -> None:
+    import json
+
     conn = get_conn()
     try:
         with board_scope(conn, exc.board_id) as cur:
@@ -329,9 +338,23 @@ def _handle_budget_exhaustion(exc: BudgetExhaustedError) -> None:
                 "WHERE id = %s AND board_id = %s",
                 (exc.task_id, exc.board_id),
             )
+            # P5.5: structured, gate-visible record of *which* budget axis
+            # tripped (task_runs.outcome stays the plain 'budget_exhausted'
+            # string for existing callers) — no schema migration, reuses the
+            # existing append-only task_events table/JSONB payload column.
+            cur.execute(
+                """
+                INSERT INTO task_events (board_id, task_id, run_id, kind, payload)
+                VALUES (%s, %s, %s, 'budget_exhausted', %s::jsonb)
+                """,
+                (
+                    exc.board_id, exc.task_id, exc.run_id,
+                    json.dumps({"axis": exc.axis, "reason": str(exc)}),
+                ),
+            )
     finally:
         conn.close()
-    log.warning("budget exhausted for task %s: %s", exc.task_id, exc)
+    log.warning("budget exhausted for task %s (axis=%s): %s", exc.task_id, exc.axis, exc)
 
 
 def _handle_model_failure(exc: ModelFailureError) -> None:

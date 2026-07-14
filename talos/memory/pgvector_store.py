@@ -179,6 +179,42 @@ def query_rules(board_id: str, text: str, k: int = 5, where: dict | None = None)
     return _reshape([dict(r) for r in rows])
 
 
+def exclude_superseded_and_rejected(board_id: str, rules: list[dict]) -> list[dict]:
+    """
+    P5.5: query_rules() applies no where-filter on rules.status or
+    rules.superseded_by -- and can't for superseded_by, since it's never
+    embedded in vector-store metadata (only the Postgres `rules` row is
+    updated when a rule is superseded; the vector chunk is never deleted or
+    re-embedded, per talos.crystallize's supersede paths). This cross-checks
+    each retrieved rule's id against the Postgres `rules` table and drops
+    rows where superseded_by IS NOT NULL or status = 'rejected'.
+    Backend-agnostic by design -- rules.superseded_by/status are Postgres-only
+    truth regardless of which vector store served query_rules, and both
+    stores' query_rules echo the rule id back as the row's top-level "id"
+    (pgvector's _reshape via metadata.rule_id; chroma's collection id, which
+    was set to rule_id at upsert time).
+    """
+    rule_ids = [r.get("id") for r in rules if r.get("id")]
+    if not rule_ids:
+        return rules
+
+    from talos.db import board_scope, get_conn
+
+    conn = get_conn()
+    try:
+        with board_scope(conn, board_id) as cur:
+            cur.execute(
+                "SELECT id FROM rules WHERE board_id = %s AND id = ANY(%s) "
+                "AND superseded_by IS NULL AND status != 'rejected'",
+                (board_id, rule_ids),
+            )
+            live_ids = {row["id"] for row in cur.fetchall()}
+    finally:
+        conn.close()
+
+    return [r for r in rules if r.get("id") in live_ids]
+
+
 def _json(obj: dict) -> str:
     import json
     return json.dumps(obj)

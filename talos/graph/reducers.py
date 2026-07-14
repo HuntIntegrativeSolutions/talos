@@ -32,9 +32,9 @@ def merge_disjoint_dicts(left: dict | None, right: dict | None) -> dict:
 
 
 _BUDGET_LIMIT_KEYS = (
-    "max_spend_usd", "max_tokens", "max_tool_calls", "max_elapsed_seconds", "soft_spend_usd",
+    "max_spend_usd", "max_tokens", "max_model_invocations", "max_elapsed_seconds", "soft_spend_usd",
 )
-_BUDGET_ACCUM_KEYS = ("spent_usd", "tokens_used", "tool_calls")
+_BUDGET_ACCUM_KEYS = ("spent_usd", "tokens_used", "model_invocations")
 
 
 def merge_budget(left: dict | None, right: dict | None) -> dict:
@@ -42,17 +42,17 @@ def merge_budget(left: dict | None, right: dict | None) -> dict:
     Commutative, associative merge for the `budget` channel (talos.graph.spine.TaskBudget).
 
     Every concurrent writer of this channel must return a *delta* for the
-    accumulator fields (spent_usd, tokens_used, tool_calls) — the amount it
-    contributed this call, starting from zero, never the running total.
-    Summing deltas is commutative/associative; summing running totals (which
-    double-count the baseline already present in the channel) is not.
+    accumulator fields (spent_usd, tokens_used, model_invocations) — the
+    amount it contributed this call, starting from zero, never the running
+    total. Summing deltas is commutative/associative; summing running totals
+    (which double-count the baseline already present in the channel) is not.
 
     LangGraph applies this reducer pairwise across whatever writes land in a
     superstep, in no guaranteed order — a naive "copy limit fields from
     whichever side looks like the full baseline" approach is NOT actually
     commutative, because which operand ends up as `left` vs `right` in a given
     pairwise fold isn't fixed. So every writer must copy the limit fields
-    (max_spend_usd, max_tokens, max_tool_calls, max_elapsed_seconds,
+    (max_spend_usd, max_tokens, max_model_invocations, max_elapsed_seconds,
     soft_spend_usd) forward into its own delta dict unchanged (they're read
     from the same pre-fan-out state by every branch and never modified by any
     of them) — that makes `left` and `right` structurally symmetric, so this
