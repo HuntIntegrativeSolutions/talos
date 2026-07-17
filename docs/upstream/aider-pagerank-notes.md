@@ -2,6 +2,11 @@
 
 > Research date: 2026-06-11  
 > Source: `Aider-AI/aider` — Apache 2.0 License  
+>
+> **Historical note:** predates ADR-039 (Neo4j/Redis options discussed below for the PageRank
+> context map were later cancelled repo-wide; recursive CTEs / Apache AGE in Postgres is the
+> current direction — see BLUEPRINT.md). This PageRank work is post-v1 and undesigned either way.
+> Retained as written for the historical record.
 > Purpose: Inform TALOS graph-seeding mechanism. Patterns only — zero ported code.
 
 ---

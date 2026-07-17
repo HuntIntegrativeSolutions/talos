@@ -1,5 +1,8 @@
 # TALOS P2 — Critics & the Five-Outcome Gate
 
+> **Historical note:** this prompt predates the `platform/` → `talos/` rename; current code lives
+> in `talos/`. Retained as written for the historical record.
+
 ## What this is
 
 A precise implementation prompt for Phase 2 of the TALOS build sequence

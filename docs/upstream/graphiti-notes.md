@@ -1,7 +1,12 @@
 # Graphiti — Technical Deep-Dive Notes
 
 > Research date: 2026-06-11  
-> Source: `getzep/graphiti` — Apache 2.0 License  
+> Source: `getzep/graphiti` — Apache 2.0 License
+>
+> **Historical note:** predates ADR-039 — "TALOS's Neo4j memory layer" referenced below was later
+> cancelled (recursive CTEs / Apache AGE in Postgres is the current direction for any future
+> bi-temporal graph work). Graphiti's own Neo4j dependency (a third-party fact) is unaffected.
+> Retained as written for the historical record.  
 > Purpose: Evaluate Graphiti as the TALOS temporal knowledge graph layer. Code eligible for adoption.
 
 ---

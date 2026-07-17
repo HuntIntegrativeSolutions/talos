@@ -1,5 +1,8 @@
 # TALOS — P1 Gate Spine Prompt
 
+> **Historical note:** this prompt predates the `platform/` → `talos/` rename; current code lives
+> in `talos/`. Retained as written for the historical record.
+
 Paste this into a new Claude Code session. Working directory: `/mnt/i/talos/`
 
 ---

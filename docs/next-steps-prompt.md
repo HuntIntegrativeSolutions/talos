@@ -1,5 +1,9 @@
 # TALOS — Next Steps Prompt
 
+> **Historical note:** this prompt predates ADR-039 (which replaced Chroma with pgvector and
+> cancelled Neo4j/Redis). Retained as written for the historical record; see README.md / ADR-039
+> for current state.
+
 Paste this into a new Claude Code session. Working directory: `/mnt/i/talos/`
 
 ---

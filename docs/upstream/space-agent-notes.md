@@ -2,6 +2,9 @@
 
 > Research date: 2026-06-11  
 > Source: `agent0ai/space-agent` — MIT License  
+>
+> **Historical note:** predates ADR-039 (Neo4j/Redis mapped to TALOS below were later cancelled).
+> Retained as written for the historical record; see README.md / ADR-039 for current state.
 > Purpose: Inform TALOS cockpit / widget layer design. Code + patterns eligible for porting.
 
 ---

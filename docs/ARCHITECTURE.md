@@ -36,7 +36,9 @@ TALOS takes the strongest piece of each upstream (all MIT) and lets each do what
 2. **Industrial / domain integration** — domain capability packs (e.g. **NEXUS** for PLC analysis)
    attach *behind the MCP boundary*. Agents claim a task → call capability tools → output lands in
    **Review** → critics gate → human approves. The capability never moves on its own.
-3. **Polyglot memory** — `memory/`. Four stores, each for the job it's best at (see ADR-003).
+3. **Unified Postgres memory** — `talos/memory/`. One Postgres database is the system of record;
+   pgvector holds vector search over rules and documentation; a markdown vault holds human-facing
+   docs. ADR-039 supersedes ADR-003's four-store split — no separate graph store or Redis.
 4. **Business layer** — invoicing, time, per-client P&L, proposals (QuickBooks and similar),
    exposed as ordinary capabilities behind the gateway.
 
@@ -57,7 +59,7 @@ gate — a new skill is a *proposal*, not a trusted instruction, which closes th
 
 ## Deployment — hub-and-spoke
 
-- **Mothership (control plane):** the board (Postgres), the graph, the vector store, Redis, the
+- **Mothership (control plane):** the board (Postgres), pgvector, the markdown vault, the
   dispatcher, and the business layer. Where the operator works across all clients.
 - **Edges (per client):** a slim, single-board runtime that runs the agents touching that client's
   systems, keeps their data local, and syncs only non-sensitive coordination state up over the
@@ -73,15 +75,15 @@ TALOS is a *platform that calls* its capabilities rather than a monolith that ab
 ## Component map
 
 ```
-engine/    Postgres source of truth + dispatcher + board API
-web/        Space Agent view (board-as-Space, widgets, time-travel)
-critics/    deterministic gate functions (verdict: pass | fail | warn)
-gateway/    sandboxed proactive loops, notifications, channel adapters
-memory/     adapters: postgres | graph | vector | redis
+engine/    Postgres schema + migrations (schema-only; the runtime lives in talos/)
+talos/     spine, dispatcher, board API, critics, validators, auth, memory adapters
+web/gate/  Space Agent-style gate UI (board-as-Space, widgets, time-travel is P7b, not yet built)
+critics/   deterministic gate functions (verdict: pass | fail | warn) — lives in talos/critics/
+gateway/   sandboxed proactive loops, notifications, channel adapters (not yet built)
+memory/    adapters: postgres | pgvector | vault — lives in talos/memory/
 ```
 
 ## Decision records
 
-- [ADR-001 — Platform, not a NEXUS merge](decisions/ADR-001-platform-vs-nexus.md)
-- [ADR-002 — Board engine + Space Agent view](decisions/ADR-002-board-as-space.md)
-- [ADR-003 — Polyglot memory](decisions/ADR-003-polyglot-memory.md)
+See [`docs/decisions/README.md`](decisions/README.md) for the full ADR index (ADR-001 through
+ADR-039). ADR-039 supersedes ADR-003 (polyglot memory → unified Postgres).

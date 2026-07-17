@@ -3,6 +3,10 @@
 > **Source:** NousResearch/hermes-agent (MIT)
 > **Purpose:** Ground truth for TALOS board engine design. Documents what we take, what we
 > improve, and the exact mechanics so we don't re-derive it from scratch.
+>
+> **Historical note:** predates ADR-039 (the four-store polyglot memory referenced below was
+> cancelled/replaced). Retained as written for the historical record; see README.md / ADR-039 for
+> current state.
 > **Key files:** `hermes_cli/kanban_db.py`, `gateway/kanban_watchers.py`, `agent/conversation_loop.py`,
 > `tools/skills_guard.py`, `hermes_cli/goals.py`, `hermes_cli/profiles.py`
 

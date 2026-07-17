@@ -1,5 +1,9 @@
 # TALOS P3 Pre-Interview — Customizability, Extension Points & New Capabilities
 
+> **Historical note:** this prompt predates the `platform/` → `talos/` rename and ADR-039 (which
+> replaced Chroma with pgvector and cancelled Neo4j/Redis). Retained as written for the historical
+> record; see README.md / ADR-039 for current state.
+
 Paste this entire prompt into a new Claude Code session to conduct the interview.
 
 ---

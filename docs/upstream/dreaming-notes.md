@@ -1,5 +1,9 @@
 # Dreaming — Upstream Research Notes
 
+> **Historical note:** this file predates ADR-039 (which replaced Chroma with pgvector and
+> cancelled Neo4j/Redis). Its memory-store mapping reflects the architecture as of when it was
+> written. Retained as written for the historical record; see README.md / ADR-039 for current state.
+
 _TALOS upstream research file. Covers what external systems call "Dreaming" (Anthropic Managed Agents), "AutoDream" (Claude Code), and analogous consolidation patterns. All findings are mapped to TALOS constraints at the end._
 
 ---

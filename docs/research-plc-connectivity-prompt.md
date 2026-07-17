@@ -1,5 +1,8 @@
 # Research Prompt — PLC Connectivity: pylogix, PLC5, and What to Build
 
+> **Historical note:** this prompt predates the `platform/` → `talos/` rename; current code lives
+> in `talos/`. Retained as written for the historical record.
+
 You are doing a deep technical research dive for TALOS, a pre-alpha multi-agent industrial
 project-execution platform at `/mnt/i/talos/`. TALOS is NOT a coding assistant. It
 orchestrates agents for operations work including PLC analysis, maintenance, and project

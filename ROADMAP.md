@@ -420,7 +420,8 @@ P4-Memory (Postgres + Chroma in v1; Neo4j + Redis deferred)
   ├── [P4b ✓] Deferred P3 DoD #5: milestone safety-significant gating (ADR-016 action
   │   item #7): HIGH=missed auto-stages an issue-task (never auto-dispatched); MEDIUM=at_risk
   │   auto-dispatches a remediation task with a shortened (advisory non-safety-critic) gate
-  └── [Post-v1] Neo4j episodic graph + Redis hot cache
+  └── ~~[Post-v1] Neo4j episodic graph + Redis hot cache~~ — cancelled, see the ADR-039
+      supersession note below ("Deferred to post-v1")
 
 P5-Crystallize (closed)
   ├── [x] Automatic post-approval trigger (on_task_approved, skips any
@@ -497,7 +498,12 @@ research — no rework. The adaptivity half is largely on paper. Ranked gaps and
 6. **Repo fails its own Fresh Session Test** — stale README (points at nonexistent
    `platform/`), ADR index covers 17 of 40 files (duplicate ADR-010/011 numbers), no
    red-team status view. Per the research this is a harness defect, not housekeeping.
-   → Docs-hygiene pass, cheap, do alongside P5.5. Also pre-external-user: U1 manifest
+   → Docs-hygiene pass, cheap, do alongside P5.5. **✓ closed 2026-07-16** — CLAUDE.md,
+   README.md, docs/ARCHITECTURE.md, and the ADR index (now 41 rows, all 39 ADRs + both
+   010/011 clarification docs) rewritten; stale platform/, Chroma-as-current, and
+   Neo4j/Redis-as-planned claims fixed across living docs; historical prompt/notes files
+   left as written with a one-line note. No red-team status view yet — out of scope for
+   this pass. Also pre-external-user: U1 manifest
    signing (content-hashed but unsigned), U3 re-dispatch suppression (reclaim has no
    failure-class predicates — nothing stops re-dispatching a repeatedly-failing task).
 

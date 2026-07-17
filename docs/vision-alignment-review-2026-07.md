@@ -1,5 +1,10 @@
 # TALOS Vision-Alignment Review — July 2026
 
+> **Historical note:** this review predates ADR-039 (which replaced Chroma with pgvector and
+> cancelled Neo4j/Redis); its Chroma/Neo4j mentions reflect the architecture as of July 2026, not
+> current state. Retained as written for the historical record; see README.md / ADR-039 for
+> current state.
+
 **Purpose:** Audit the build (P0–P4 complete, P5 in flight, P7a shipped) against the owner's
 vision: *a harness that blends the best of Hermes Agent, OpenClaw, Agent Zero, Space Agent,
 and other top harnesses into one system, focused on industrial automation, with NEXUS leading

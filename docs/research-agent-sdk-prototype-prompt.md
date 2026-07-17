@@ -1,5 +1,8 @@
 # Prototype Task — Claude Agent SDK + LangGraph Integration
 
+> **Historical note:** this prompt predates the `platform/` → `talos/` rename; current code lives
+> in `talos/`. Retained as written for the historical record.
+
 **Purpose:** Determine whether the Claude Agent SDK's `query()` can be safely called inside
 a checkpointed LangGraph node. The result becomes ADR-029, which the P3 implementation
 prompt depends on.

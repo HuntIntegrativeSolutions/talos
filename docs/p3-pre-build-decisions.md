@@ -1,5 +1,8 @@
 # TALOS P3 Pre-Build Decisions
 
+> **Historical note:** this document predates the `platform/` → `talos/` rename; current code
+> lives in `talos/`. Retained as written for the historical record.
+
 **Purpose:** This is the handoff to the session that writes the P3 implementation prompt.
 Every decision below was made in the P3 pre-interview (2026-06-14). Do not re-read ADR prose
 to understand these constraints — the material below is written to be sufficient on its own.

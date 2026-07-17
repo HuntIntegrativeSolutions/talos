@@ -1,6 +1,9 @@
 # Claude Agent SDK — Technical Deep-Dive Notes
 
 > Research date: 2026-06-14
+>
+> **Historical note:** these notes predate the `platform/` → `talos/` rename; current code lives
+> in `talos/`. Retained as written for the historical record.
 > Sources: `code.claude.com/docs/en/agent-sdk/*` (7 pages, all live), web searches, `docs/upstream/langgraph-notes.md`
 > Purpose: Evaluate the Claude Agent SDK as a potential replacement or complement to LangGraph in TALOS. Answer: replace, complement, or ignore?
 

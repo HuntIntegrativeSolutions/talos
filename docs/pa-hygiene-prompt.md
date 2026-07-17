@@ -1,5 +1,8 @@
 # Option A — Public Repo Hygiene Implementation Prompt
 
+> **Historical note:** this prompt predates the `platform/` → `talos/` rename; current code lives
+> in `talos/`. Retained as written for the historical record.
+
 **Context:** TALOS is a pre-alpha multi-agent industrial project-execution platform at
 `/mnt/i/talos/`. P0 (schema + contracts + validators), P1 (single-worker LangGraph spine), and
 P2 (critics registry + five-outcome gate) are all complete. 27 tests pass. The repo is already

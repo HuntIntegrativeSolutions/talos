@@ -1,5 +1,9 @@
 # Prompt: Docs-hygiene pass (post-P5)
 
+> **Historical note:** this prompt predates ADR-039 (which replaced Chroma with pgvector and
+> cancelled Neo4j/Redis) — its proposed ADR-040 (Chroma-vs-Postgres snapshot/rollback) was folded
+> into ADR-039 rather than becoming its own ADR. Retained as written for the historical record.
+
 > Paste everything below this line to the implementing session.
 
 ---

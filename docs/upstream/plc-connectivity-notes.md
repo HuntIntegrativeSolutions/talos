@@ -1,6 +1,9 @@
 # PLC Connectivity — Research Notes
 
 > Research date: 2026-06-14
+>
+> **Historical note:** these notes predate the `platform/` → `talos/` rename; current code lives
+> in `talos/`. Retained as written for the historical record.
 > Purpose: Characterize the Python PLC connectivity library landscape for NEXUS. NEXUS is the
 > MCP-bounded domain capability behind TALOS (ADR-001). TALOS itself never talks to a PLC.
 > All libraries discussed here live inside NEXUS, not in `platform/`.

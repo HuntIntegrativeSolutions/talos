@@ -1,5 +1,8 @@
 # P3.5 Harness Results — real + stub evidence for the four exit criteria
 
+> **Historical note:** this record predates the P5.5 rename of `max_tool_calls` to
+> `max_model_invocations`. Retained as written for the historical record.
+
 Evidence references task/run/board IDs, timestamps, and counts only. No NDA plant data
 (tag names, rung content, generated documentation text) is reproduced here — NEXUS
 document content referenced below lives only in NEXUS's own derived-artifact store on

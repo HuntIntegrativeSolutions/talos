@@ -49,8 +49,10 @@ and credits them.
   critic passes *and* a human approves.
 - **Gateway** — a sandboxed orchestration layer for proactive loops and notifications, walled off
   from privileged tools.
-- **Memory** — polyglot by design: Postgres (system of record), a graph (knowledge & topology), a
-  vector store (semantic + episodic recall), and Redis (working memory + live dashboard).
+- **Memory** — unified Postgres (ADR-039): one database is the system of record, pgvector holds
+  vector search over rules and documentation, and a markdown vault holds human-facing docs. An
+  earlier design split memory across a separate graph store and Redis; both were cancelled in
+  favor of one Postgres-backed store.
 - **Capabilities** — domain packs (e.g. NEXUS for PLC analysis) attach *behind the MCP boundary*,
   which doubles as a security boundary.
 
@@ -62,18 +64,27 @@ See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for the full design and
 
 ## Status
 
-**Pre-alpha · P0 + P1 + P2 complete.**
+**Pre-alpha · P0–P3 core complete, P4/P5/P5.5 closed, P6-Sim Landing 1 closed, P7a closed.**
 
-The schema, contracts, critics registry, and five-outcome human-review gate are implemented
-and tested. The full distributed dispatcher (P3), memory federation (P4), sim-execute (P6),
-web cockpit (P7), and gateway (P8) have not been built yet.
+The schema, contracts, critics registry, five-outcome human-review gate, full asyncio dispatcher,
+unified Postgres memory (pgvector + markdown vault, ADR-039), Crystallize rule extraction, a
+bounded critic-fail→revise loop, and the first verifier critic are implemented and tested. The
+full Space Agent cockpit (P7b), the rest of the sim-execute capability (P6), and the gateway (P8)
+have not been built yet.
 
 What is runnable today:
-- `platform/validators/` — capability-manifest validator (P0)
-- `platform/critics/` — deterministic gate critics and registry (P2)
-- `platform/graph/spine.py` — 4-node LangGraph spine with five-outcome gate (P1/P2)
-- `platform/worker.py` — single-worker claim loop (P1, no dispatcher yet)
-- `platform/api.py` — FastAPI board API with full gate endpoint (P1/P2)
+- `talos/validators/` — capability-manifest validator (P0)
+- `talos/critics/` — deterministic gate critics, registry, and verifier-critic infrastructure (P2/P6)
+- `talos/graph/spine.py` — LangGraph spine with five-outcome gate, bounded critic-fail→revise loop,
+  and a 4-branch read fan-out (P1/P2/P4b/P5/P5.5)
+- `talos/worker.py` — asyncio dispatcher, heartbeat, and dead-worker reclaim (P3)
+- `talos/api.py` — FastAPI board API with full gate endpoint, JWT auth, review-queue/SLA endpoints
+  (P1/P2/RT-01/P4a/P4b)
+- `talos/auth/` — local JWT auth (RT-01)
+- `talos/memory/` — pgvector-backed documentation and rule stores (P4a/P4b/P5)
+- `web/gate/` — the P7a minimal gate-approval web UI
+
+See [`CLAUDE.md`](CLAUDE.md) for the full module-by-module breakdown.
 
 ## Quick start
 
@@ -84,31 +95,47 @@ git clone git@github.com:HuntIntegrativeSolutions/talos.git
 cd talos
 python -m venv .venv && source .venv/bin/activate
 pip install -e ".[test]"
-TALOS_NEXUS_STUB=1 python -m pytest platform/ -v
+TALOS_NEXUS_STUB=1 python -m pytest talos/ -v
 ```
+
+Or with `uv` (this repo ships a `uv.lock`):
+
+```bash
+uv sync --extra test
+TALOS_NEXUS_STUB=1 uv run pytest talos/ -v
+```
+
+Either path also installs the `talos` CLI entry point (`talos.cli:main`) — run `talos --help`
+once installed.
 
 ## Repo layout
 
 ```
-platform/      Implemented Python modules
-  critics/     Deterministic gate critics and registry (P2)
-  graph/       LangGraph spine with five-outcome gate (P1/P2)
+talos/         Implemented Python modules
+  critics/     Deterministic gate critics, registry, verifier-critic infrastructure (P2/P6)
+  graph/       LangGraph spine with five-outcome gate + revise loop + read fan-out (P1/P2/P4b/P5/P5.5)
   validators/  Capability-manifest validator (P0)
-  tests/       27 integration + unit tests (P0–P2)
-  worker.py    Single-worker claim loop (P1)
-  api.py       FastAPI board API (P1/P2)
-engine/        Postgres schema (schema.sql + schema-additions.sql + schema-p2.sql)
-web/           Placeholder — Space Agent cockpit (not built)
+  auth/        Local JWT auth (RT-01)
+  memory/      pgvector-backed documentation and rule stores (P4a/P4b/P5)
+  llm_providers/  Multi-provider LLM abstraction (ADR-031)
+  tests/       300+ tests, count moves with every landing — run `pytest talos/ -v` for the total
+  worker.py    Asyncio dispatcher, heartbeat, dead-worker reclaim (P3)
+  api.py       FastAPI board API (P1/P2/RT-01/P4a/P4b)
+  cli.py       `talos` CLI entry point
+engine/        Postgres schema (schema*.sql) + migrations/ (Alembic, ADR-034)
+web/gate/      Live P7a minimal gate-approval web UI (static HTML/JS/CSS, no build system)
 gateway/       Placeholder — sandboxed proactive loops (not built)
-memory/        Placeholder — polyglot memory adapters (not built)
+memory/        Placeholder doc — real memory code lives in talos/memory/
+capabilities/  NEXUS capability-manifest dispositions
+scripts/       One-off maintenance scripts (e.g. Chroma→pgvector migration)
 docs/
   ARCHITECTURE.md        High-level system overview
-  decisions/             ADR-001 through ADR-017 — binding design decisions
+  decisions/             ADR-001 through ADR-039 — binding design decisions
   contracts/             Four frozen seam contracts
   integration/           Reconciliation documents (integration map, build sequence, red-team)
   upstream/              Notes from upstream harnesses studied during design
-BLUEPRINT.md   Authoritative living design document (v0.6)
-ROADMAP.md     Phase-ordered research and documentation roadmap
+BLUEPRINT.md   Authoritative living design document
+ROADMAP.md     Phase-ordered roadmap
 assets/        Brand assets (emblem, etc.)
 ```
 

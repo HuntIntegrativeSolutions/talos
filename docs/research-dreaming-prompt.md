@@ -1,5 +1,9 @@
 # Research Prompt — Dreaming & Memory Consolidation
 
+> **Historical note:** this prompt predates ADR-039 (which replaced Chroma with pgvector and
+> cancelled Neo4j/Redis). Retained as written for the historical record; see README.md / ADR-039
+> for current state.
+
 You are doing a deep technical research dive for TALOS, a pre-alpha multi-agent industrial
 project-execution platform. TALOS is NOT a coding assistant. It orchestrates agents for
 operations work (PLC audits, maintenance programs, project management) behind a hard

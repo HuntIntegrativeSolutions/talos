@@ -2,6 +2,9 @@
 
 > **Status:** Research notes · 2026-06-11
 > **Purpose:** Catalog where and how machine learning fits into TALOS's architecture, mapped to existing layers. Not an implementation plan — a map of integration points.
+>
+> **Historical note:** predates ADR-039 (pgvector replaced Chroma as the vector store). Retained
+> as written for the historical record; see README.md / ADR-039 for current state.
 
 ---
 

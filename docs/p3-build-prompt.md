@@ -1,5 +1,9 @@
 # P3 Implementation Prompt — Full Dispatcher
 
+> **Historical note:** this prompt predates ADR-039 (Neo4j/Redis, listed below as deferred P4
+> items, were later cancelled; pgvector replaced Chroma) and the P5.5 rename of `max_tool_calls`
+> to `max_model_invocations`. Retained as written for the historical record.
+
 You are implementing **P3** of TALOS, a pre-alpha multi-agent industrial project-execution
 platform. P0 (schema + contracts), P1 (single-worker spine), and P2 (critics + five-outcome
 gate) are all complete with 27 passing tests.
