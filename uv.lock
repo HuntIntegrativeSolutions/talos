@@ -2933,6 +2933,14 @@ crypto = [
 ]
 
 [[package]]
+name = "pylogix"
+version = "1.1.5"
+source = { registry = "https://pypi.org/simple" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/18/87/a186c61d724326daa1cd8e43df46efbb2f19dcad17f437a74d3672e0ba11/pylogix-1.1.5-py2.py3-none-any.whl", hash = "sha256:6bf2ab0b4ebff4e5085717cb131efa48feb547d868c6176a47c3f50f7adab56e", size = 79332, upload-time = "2026-02-23T21:24:53.947Z" },
+]
+
+[[package]]
 name = "pypika"
 version = "0.51.1"
 source = { registry = "https://pypi.org/simple" }
@@ -3758,6 +3766,7 @@ app = [
     { name = "psycopg", extra = ["binary"] },
     { name = "psycopg2-binary" },
     { name = "pyjwt" },
+    { name = "pylogix" },
     { name = "python-frontmatter" },
     { name = "requests" },
     { name = "sentence-transformers" },
@@ -3780,6 +3789,7 @@ test = [
     { name = "psycopg", extra = ["binary"] },
     { name = "psycopg2-binary" },
     { name = "pyjwt" },
+    { name = "pylogix" },
     { name = "pytest" },
     { name = "pytest-asyncio" },
     { name = "python-frontmatter" },
@@ -3818,6 +3828,8 @@ requires-dist = [
     { name = "psycopg2-binary", marker = "extra == 'test'" },
     { name = "pyjwt", marker = "extra == 'app'", specifier = ">=2.0" },
     { name = "pyjwt", marker = "extra == 'test'", specifier = ">=2.0" },
+    { name = "pylogix", marker = "extra == 'app'", specifier = "==1.1.5" },
+    { name = "pylogix", marker = "extra == 'test'", specifier = "==1.1.5" },
     { name = "pytest", marker = "extra == 'test'" },
     { name = "pytest-asyncio", marker = "extra == 'test'" },
     { name = "python-frontmatter", marker = "extra == 'app'" },

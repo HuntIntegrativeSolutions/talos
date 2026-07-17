@@ -145,6 +145,15 @@ class VerifierSpec:
     registration (not an error): an auto-blocking verifier that fails OPEN
     on an LLM timeout is a safety gap with no structural enforcer (ADR-021's
     failure-behavior table).
+
+    `deterministic` (P6 Landing 2): when True, run_all_verifiers calls
+    `fn(deliverable, rubric_text, nexus_client)` directly instead of
+    `score_fn(spec, rubric_text)` -- an explicit flag rather than duck-typing
+    on `fn`, so the LLM-scored path (score_fn, used when False) is untouched.
+    `fn` must return the same `(score: float | None, reasoning: str)` tuple
+    contract as `score_fn` -- the rest of run_all_verifiers' failure-table /
+    threshold / persistence logic is reused unchanged for either path.
+    Defaults to False so existing/future LLM-scored verifiers need no change.
     """
     name: str
     fn: Callable
@@ -156,6 +165,7 @@ class VerifierSpec:
     score_threshold: float
     advisory: bool
     fail_open: bool
+    deterministic: bool = False
 
 
 @dataclass
@@ -210,6 +220,15 @@ def run_all_verifiers(
         burned into its own closed-over budget dict BEFORE returning None --
         a failed call still costs money.
 
+    For spec.deterministic=True verifiers, `spec.fn(deliverable, rubric_text,
+    nexus_client)` is called directly instead of score_fn, with the identical
+    (score, reasoning) contract -- score=None means "refused or could not
+    verify" (invalid config, unreachable target, timeout, etc.), not an LLM
+    failure, but goes through the same failure-table branch below since the
+    branch's behavior (skip / warn / fail by advisory+fail_open) is exactly
+    what's wanted either way. No budget contribution: deterministic verifiers
+    make no LLM call.
+
     Per verifier, in registration order:
       1. rubric_text = rubrics.get(spec.rubric_field). If absent: SKIP
          entirely -- no score_fn call, no row in the returned list, therefore
@@ -252,22 +271,31 @@ def run_all_verifiers(
         if rubric_text is None:
             continue  # zero-cost skip: no LLM call, no row, no budget contribution
 
-        score, reasoning = score_fn(spec, rubric_text)
+        if spec.deterministic:
+            score, reasoning = spec.fn(deliverable, rubric_text, nexus_client)
+        else:
+            score, reasoning = score_fn(spec, rubric_text)
 
         if score is None:
+            failure_kind = "verification" if spec.deterministic else "LLM call"
             if spec.advisory and spec.fail_open:
                 logging.getLogger(__name__).warning(
-                    "verifier %s: LLM call failed, fail_open=True -> skipping", spec.name
+                    "verifier %s: %s failed, fail_open=True -> skipping", spec.name, failure_kind
                 )
                 continue
             verdict = "warn" if spec.advisory else "fail"
+            default_reason = (
+                "verifier could not complete deterministic verification"
+                if spec.deterministic
+                else "verifier LLM call failed or returned unparseable output"
+            )
             results.append({
                 "name": spec.name,
                 "required": not spec.advisory,
                 "safety_class": spec.safety_class,
                 "waivable": spec.waivable,
                 "passed": False,
-                "reason": "verifier LLM call failed or returned unparseable output",
+                "reason": reasoning or default_reason,
                 "verdict": verdict,
                 "score": None,
                 "reasoning": reasoning,
@@ -305,4 +333,27 @@ register_verifier(VerifierSpec(
     score_threshold=0.8,
     advisory=True,
     fail_open=False,
+))
+
+# P6 Landing 2 -- deterministic emulator-consistency verifier (ADR-021/024).
+# Imported here (not at module top) so this module's own import graph stays
+# free of pylogix at load time; talos.verifiers.emulator itself only imports
+# pylogix lazily inside the function that does the live read, so this import
+# does not violate the "registry must not import spine/llm/pylogix at module
+# level" invariant (see the module docstring and
+# test_registry_module_does_not_import_pylogix).
+from talos.verifiers.emulator import emulator_consistency_verifier  # noqa: E402
+
+register_verifier(VerifierSpec(
+    name="emulator_consistency",
+    fn=emulator_consistency_verifier,
+    required=False,
+    safety_class=False,
+    waivable=True,
+    rubric_field="emulator_consistency",
+    verifier_model=None,
+    score_threshold=0.95,
+    advisory=True,
+    fail_open=False,
+    deterministic=True,
 ))

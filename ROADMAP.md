@@ -457,9 +457,27 @@ P6-Sim (scoped 2026-07-12: build the FIRST VERIFIER CRITIC, per ADR-021 — zero
   │   per-revise-iteration cost); rubric attachment via an HTML-comment marker in
   │   tasks.body (talos.task_origin.extract_rubrics()); first verifier registered,
   │   rubric_compliance (advisory=True, score_threshold=0.8); 329 tests passing.
-  └── Rockwell-based PLC emulator via pylogix; custom library evaluation underway.
-      Emulator/OpenPLC results land as verifier-critic evidence rows at the gate, not just
-      artifacts — first critic meeting the "full-pipeline verification" bar (still open)
+  └── [x] Landing 2 (2026-07-17): first DETERMINISTIC (non-LLM) verifier —
+      emulator_consistency (talos/verifiers/emulator.py), activating VerifierSpec.fn via a
+      new explicit deterministic=True dispatch flag in run_all_verifiers. Read-only pylogix
+      wrapper (GetDeviceProperties/GetProgramsList/GetTagList only; no Write anywhere, source-
+      asserted) against a FactoryTalk Logix Echo emulator, allow-listed via talos.toml
+      [emulators] (confirmed_emulator=true required — a task marker can never supply a raw
+      address); cross-checked against NEXUS via a recursive-sharded tag_find_plant_wide sweep
+      (tag_search/get_plc_knowledge_graph both proved unusable live — see
+      docs/plc-emulator-verification.md). Score = program_recall/tag_coverage(e2n,n2e)/
+      type_agreement weighted formula, advisory=True this landing (informational, never
+      blocking). 353 tests passing; live-probed against the real emulator + real NEXUS via
+      scripts/emulator_verify_probe.py (score 0.954 against Dryer_PLC/NFK-DRYER-TEST-V2, at
+      read_timeout_s=60 -- the shipped 10s default leaves the NEXUS shard sweep mostly
+      incomplete against the live instance, since each shard call opens its own MCP session;
+      reasoning honestly names every incomplete shard rather than claiming full coverage. A
+      first live-probe run also surfaced and fixed a real bug: pylogix can return
+      Status != "Success" with Value=None without raising, which the verifier was silently
+      treating as "zero tags" instead of refusing -- now raises loudly, caught by the
+      refusal contract). Emulator/OpenPLC results now land as verifier-critic evidence rows
+      at the gate, not just artifacts — first critic meeting the "full-pipeline
+      verification" bar.
 
 P7a-MinimalGateUI (v1, built alongside P0 JWT auth) ✓
   ├── Thin web page: Markdown artifact preview + critic verdicts + five gate outcome buttons ✓

@@ -35,6 +35,7 @@ app = [
     "chromadb",
     "sentence-transformers",
     "python-frontmatter",
+    "pylogix==1.1.5",
 ]
 test = [
     "pytest",
@@ -56,6 +57,7 @@ test = [
     "chromadb",
     "sentence-transformers",
     "python-frontmatter",
+    "pylogix==1.1.5",
 ]
 experiment = [
     "claude-agent-sdk",

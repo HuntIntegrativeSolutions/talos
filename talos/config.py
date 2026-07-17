@@ -228,6 +228,56 @@ def get_pricing_config() -> dict[str, dict[str, float]]:
     return {**_PRICING_DEFAULTS, **_load_toml_pricing()}
 
 
+# P6 Landing 2: allow-listed FactoryTalk Logix Echo emulator targets for
+# talos.verifiers.emulator's emulator_consistency verifier. This is the ONLY
+# place PLC addresses for that verifier come from -- a task-body rubric
+# marker picks a key here by name, it can never supply a host/slot itself
+# (ADR-021/024's structural guard against ever pointing the verifier at a
+# production PLC). confirmed_emulator=True is required before the verifier
+# will connect to a target at all. dryer_echo ships as a default so the
+# verifier works against the real emulator with no talos.toml present.
+_EMULATORS_DEFAULTS: dict[str, dict] = {
+    "dryer_echo": {
+        "host": "10.0.0.11",
+        "slot": 0,
+        "confirmed_emulator": True,
+        # Per-request pylogix socket timeout.
+        "connect_timeout_s": 3,
+        # Wall-clock ceiling for the verifier's whole read sequence
+        # (emulator reads + the NEXUS sharded tag sweep) -- bounds worst case
+        # regardless of what pylogix's own socket timeout does, so a hung
+        # emulator can never stall deliverable_node.
+        "read_timeout_s": 10,
+    },
+}
+
+
+def _load_toml_emulators() -> dict[str, dict]:
+    """talos.toml [emulators] section (P6 Landing 2). Absent-file/parse-
+    failure handling mirrors _load_toml_models() exactly. Merge with
+    _EMULATORS_DEFAULTS is shallow (get_emulators_config) -- overriding a key
+    replaces its whole dict, it does not merge sub-fields."""
+    if not _TOML_PATH.exists():
+        return {}
+    try:
+        with open(_TOML_PATH, "rb") as f:
+            data = tomllib.load(f)
+        return data.get("emulators", {})
+    except Exception:
+        log.warning("talos.toml could not be parsed; using hardcoded emulators defaults")
+        return {}
+
+
+def get_emulators_config() -> dict[str, dict]:
+    """Returns {name: {host, slot, confirmed_emulator, connect_timeout_s,
+    read_timeout_s}}, talos.toml [emulators] over _EMULATORS_DEFAULTS
+    (shallow, per-key override). Consumed by
+    talos.verifiers.emulator.emulator_consistency_verifier to resolve the
+    rubric marker's "emulator" key -- absent key or confirmed_emulator not
+    True means the verifier refuses to connect."""
+    return {**_EMULATORS_DEFAULTS, **_load_toml_emulators()}
+
+
 def resolve_model(
     step: str,
     board: dict | None = None,

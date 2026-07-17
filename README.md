@@ -118,6 +118,7 @@ talos/         Implemented Python modules
   auth/        Local JWT auth (RT-01)
   memory/      pgvector-backed documentation and rule stores (P4a/P4b/P5)
   llm_providers/  Multi-provider LLM abstraction (ADR-031)
+  verifiers/   Deterministic (non-LLM) verifier critics, e.g. emulator_consistency (P6)
   tests/       300+ tests, count moves with every landing — run `pytest talos/ -v` for the total
   worker.py    Asyncio dispatcher, heartbeat, dead-worker reclaim (P3)
   api.py       FastAPI board API (P1/P2/RT-01/P4a/P4b)
@@ -127,7 +128,8 @@ web/gate/      Live P7a minimal gate-approval web UI (static HTML/JS/CSS, no bui
 gateway/       Placeholder — sandboxed proactive loops (not built)
 memory/        Placeholder doc — real memory code lives in talos/memory/
 capabilities/  NEXUS capability-manifest dispositions
-scripts/       One-off maintenance scripts (e.g. Chroma→pgvector migration)
+scripts/       One-off maintenance scripts (e.g. Chroma→pgvector migration, emulator probe)
+skills/        Operator-recipe SKILL.md docs (e.g. PLC emulator verification, P6)
 docs/
   ARCHITECTURE.md        High-level system overview
   decisions/             ADR-001 through ADR-039 — binding design decisions
