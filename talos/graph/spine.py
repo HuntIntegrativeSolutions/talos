@@ -20,6 +20,7 @@ from langgraph.graph import END, START, StateGraph
 from langgraph.types import Send, interrupt
 
 from talos.critics.registry import run_all as run_all_critics
+from talos.critics.registry import run_all_verifiers, get_all_verifiers, VerifierSpec
 from talos.db import board_scope, get_conn
 from talos.graph.reducers import merge_budget, merge_disjoint_dicts
 
@@ -775,6 +776,132 @@ def _revise_deliverable(
     return _parse_revised_deliverable(text)
 
 
+def _parse_verifier_response(text: str) -> "tuple[float | None, str | None]":
+    """
+    P6/ADR-021: strict-JSON, code-fence-tolerant parse of a verifier's LLM
+    response into (score, reasoning). Reuses _parse_revised_deliverable's
+    fence-stripping spirit but targets a different shape ({"score": float,
+    "reasoning": str}, not a full deliverable dict). Returns (None, None) on
+    any parse failure, missing/non-numeric score, non-string reasoning, or a
+    score outside [0.0, 1.0] -- all count as "LLM failure" per ADR-021's
+    failure-behavior table, never a bare 0.0 score.
+    """
+    stripped = (text or "").strip()
+    if stripped.startswith("```"):
+        stripped = stripped.strip("`")
+        if stripped.startswith("json"):
+            stripped = stripped[4:]
+        stripped = stripped.strip()
+    try:
+        parsed = json.loads(stripped)
+    except (json.JSONDecodeError, TypeError):
+        return None, None
+    if not isinstance(parsed, dict):
+        return None, None
+    score = parsed.get("score")
+    reasoning = parsed.get("reasoning")
+    if isinstance(score, bool) or not isinstance(score, (int, float)) or not (0.0 <= score <= 1.0):
+        return None, None
+    if not isinstance(reasoning, str):
+        return None, None
+    return float(score), reasoning
+
+
+def _build_verifier_prompt(rubric_text: str, deliverable: dict) -> str:
+    """P6/ADR-021: prompt-assembly for a verifier's scoring call (analogous to
+    _build_revision_prompt)."""
+    deliverable_text = json.dumps(deliverable, indent=2, default=str)
+    return (
+        "You are a quality verifier. Score how well the deliverable below "
+        "satisfies the rubric.\n\n"
+        f"RUBRIC:\n{rubric_text}\n\n"
+        f"DELIVERABLE:\n{deliverable_text}\n\n"
+        "Return ONLY a JSON object of the exact shape "
+        '{"score": <float 0.0-1.0>, "reasoning": "<short explanation>"}. '
+        "Do not include any explanation or markdown formatting outside the "
+        "JSON object."
+    )
+
+
+def _parse_verifier_model(verifier_model: str) -> "tuple[str, str]":
+    """P6/ADR-021: "{provider}:{model}" -> (provider, model). A bare string
+    with no ":" defaults provider to "anthropic"."""
+    if ":" in verifier_model:
+        provider, model = verifier_model.split(":", 1)
+        return provider, model
+    return "anthropic", verifier_model
+
+
+def _make_verifier_score_fn(state: "SpineState", deliverable: dict, budget: dict, warned_models: set):
+    """
+    P6/ADR-021: returns a score_fn closure matching run_all_verifiers'
+    contract, closed over the FINAL `deliverable` (verifiers score the
+    deliverable produced by the revise loop, not the live state) and the
+    SAME `budget` dict and `warned_models` set the P5.5 revise loop already
+    threads through this pass -- a verifier's spend folds into the identical
+    delta-not-total budget channel deliverable_node returns, and pricing
+    warnings dedupe across revise attempts AND verifier calls.
+
+    Resolves the primary ModelRef from spec.verifier_model if set (via
+    _parse_verifier_model), else from resolve_model("execute") -- the same
+    ADR-018 ladder slot _revise_deliverable uses. The fallback ModelRef is
+    ALWAYS resolve_model("execute")'s fallback, regardless of whether
+    verifier_model was set, so a custom judge model still degrades to the
+    standard execute-slot fallback rather than having none.
+
+    Accounts spend/tokens into `budget` BEFORE parsing (mirrors
+    _revise_deliverable's ordering -- a failed call still cost money), THEN
+    calls _check_budget(state, budget) before returning -- matching every
+    other model-call site's account-then-check pattern. Without this
+    post-hoc check, the verifier block is the last model-call site in
+    deliverable_node and nothing would ever re-validate an overrun after a
+    verifier's spend lands in `budget`.
+    """
+    from talos.config import resolve_model
+    from talos.llm_providers import ModelRef
+
+    def score_fn(spec: VerifierSpec, rubric_text: str) -> "tuple[float | None, str | None]":
+        _, execute_fallback = resolve_model("execute")
+        if spec.verifier_model:
+            provider, model = _parse_verifier_model(spec.verifier_model)
+            primary = ModelRef(provider, model)
+            fallback = execute_fallback
+        else:
+            primary, fallback = resolve_model("execute")
+
+        prompt = _build_verifier_prompt(rubric_text, deliverable)
+
+        def _budget_check(tokens_so_far: int, tool_calls_so_far: int) -> None:
+            prospective = {
+                **budget,
+                "tokens_used": budget["tokens_used"] + tokens_so_far,
+                "model_invocations": budget["model_invocations"] + tool_calls_so_far,
+            }
+            _check_budget(state, prospective)
+
+        text, _session_id, tokens = _call_with_fallback(
+            primary, fallback, prompt=prompt,
+            resume=None, state=state,
+            allowed_tools=[], mcp_servers={}, manifest=None,
+            budget_check=_budget_check,
+        )
+
+        price = _price_for_model(primary.provider, primary.model, warned_models)
+        input_tokens_est = len(prompt) // 4
+        budget["spent_usd"] += (
+            (input_tokens_est / 1000.0) * price["input_per_1k_usd"]
+            + (tokens / 1000.0) * price["output_per_1k_usd"]
+        )
+        budget["tokens_used"] += tokens
+        budget["model_invocations"] += 1
+
+        _check_budget(state, budget)
+
+        return _parse_verifier_response(text)
+
+    return score_fn
+
+
 def _emit_task_event(board_id: str, task_id: str, run_id: int, kind: str, payload: dict) -> None:
     """Small shared helper for one-off task_events inserts (P5.5's
     revise_attempted/revise_result kinds), each in its own connection/
@@ -980,12 +1107,36 @@ def deliverable_node(state: SpineState) -> dict:
     re-entry — accepted as one consistent run-wall-clock-since-claim
     semantic (see TaskBudget's docstring) rather than carving out a
     gate-wait exclusion.
+
+    P6/ADR-021: after the revise loop settles, verifier critics
+    (talos.critics.registry.run_all_verifiers) run once against the FINAL
+    deliverable only, for whichever registered verifiers have a matching
+    rubric block in state["task_body"] (talos.task_origin.extract_rubrics) --
+    the overwhelming majority of tasks have none, so this is a zero-cost
+    no-op for them. Deliberate scope cut: a verifier failure does NOT re-enter
+    the P5.5 revise loop above -- only deterministic critic failures do,
+    since a verifier call costs an LLM invocation and re-running it per
+    revise iteration was exactly the cost item 2 was built to avoid.
+
+    The "budget" key contract above is widened accordingly: it's returned
+    whenever budget["model_invocations"] > baseline_budget["model_invocations"]
+    -- i.e. the revise loop made >=1 attempt OR >=1 verifier ran (both
+    increment model_invocations by exactly 1 per call, so this strictly
+    generalizes the old attempt_no > 0 condition and reduces to it when no
+    verifier runs). Verifier calls fold into the SAME local `budget` dict and
+    baseline diff the revise loop already uses, via _make_verifier_score_fn --
+    not a second budget key.
+
+    BudgetExhaustedError raised while attempting a verifier call is allowed
+    to propagate out of this node uncaught, exactly like the revise loop's
+    own _check_budget call sites -- the task never reaches status='review'
+    and the worker's existing budget-exhaustion handling takes over.
     """
     from talos.spans import SpanContext, emit_span
     ctx = SpanContext(board_id=state["board_id"], task_id=state["task_id"], run_id=state["run_id"])
     emit_span(ctx, "spine.node.deliverable_node.entry")
 
-    from talos.task_origin import parse_origin
+    from talos.task_origin import parse_origin, extract_rubrics
     origin = parse_origin(state.get("task_body"))
 
     is_edit = state.get("edited_deliverable") is not None
@@ -1088,6 +1239,33 @@ def deliverable_node(state: SpineState) -> dict:
 
             deliverable, verdicts, prev_signature = new_deliverable, new_verdicts, signature
 
+    # P6/ADR-021: verifier critics run once, against the FINAL deliverable
+    # only -- never inside the P5.5 revise loop above (an LLM call per revise
+    # iteration is exactly the cost item 2 was built to avoid). Deliberate
+    # scope cut: a verifier failure does NOT re-enter the revise loop this
+    # landing -- only deterministic critic failures do.
+    #
+    # _check_budget/BudgetExhaustedError is allowed to propagate uncaught out
+    # of this block, exactly like the revise loop's own two _check_budget
+    # call sites above -- consistent with existing behavior (the worker's
+    # existing budget-exhaustion handling takes over), not a new failure
+    # mode.
+    rubrics = extract_rubrics(state.get("task_body"))
+    if rubrics and get_all_verifiers():
+        score_fn = _make_verifier_score_fn(state, deliverable, budget, warned_models)
+        _check_budget(state, budget)  # pre-flight, mirrors the revise loop's own guard
+        verifier_verdicts = run_all_verifiers(deliverable, rubrics, score_fn=score_fn, nexus_client=None)
+        if verifier_verdicts:
+            # NOTE: _persist_gate_results applies ADR-016's milestone_remediation
+            # required-downgrade ({**v, "required": False} if not safety_class),
+            # which would silently flip an advisory=False (required=True)
+            # verifier's row to required=False on a milestone_remediation-origin
+            # task. Moot for rubric_compliance (already advisory=True), but a
+            # known interaction to keep in mind for any future advisory=False
+            # verifier.
+            _persist_gate_results(board_id, task_id, run_id, verifier_verdicts, origin)
+            verdicts = verdicts + verifier_verdicts
+
     # Emit one critic span per (final) verdict.
     for v in verdicts:
         emit_span(ctx, f"spine.critic.{v['name']}", payload={"passed": v.get("passed"), "verdict": v.get("verdict")})
@@ -1136,9 +1314,14 @@ def deliverable_node(state: SpineState) -> dict:
         # Clear the edited_deliverable so a subsequent re-entry check is clean.
         "edited_deliverable": None,
     }
-    if attempt_no > 0:
+    if budget["model_invocations"] > baseline_budget["model_invocations"]:
         # See this node's docstring: a delta, never a running total, and only
-        # returned when at least one revise attempt actually ran this pass.
+        # returned when at least one revise attempt OR at least one verifier
+        # actually ran this pass. Every revise attempt AND every verifier
+        # score_fn call increments model_invocations by exactly 1 before this
+        # point, so diffing against the pre-loop baseline strictly generalizes
+        # the old `attempt_no > 0` condition (and reduces to it when no
+        # verifier runs).
         result["budget"] = _budget_delta(
             baseline_budget,
             spent_usd=budget["spent_usd"] - baseline_budget["spent_usd"],

@@ -450,9 +450,15 @@ P5.5-LoopHardening — DONE 2026-07-13 (commits f2c1839 items 1+3, 87ddc65 item 
       reuses it. merge_node's rule_context stays the gate-visible audit trail.
 
 P6-Sim (scoped 2026-07-12: build the FIRST VERIFIER CRITIC, per ADR-021 — zero registered today)
+  ├── [x] Landing 1 (2026-07-16): verifier critic infrastructure — VerifierSpec/
+  │   VerifierVerdict/register_verifier()/run_all_verifiers() (talos/critics/registry.py),
+  │   wired into deliverable_node after the P5.5 revise loop (final deliverable only, no
+  │   per-revise-iteration cost); rubric attachment via an HTML-comment marker in
+  │   tasks.body (talos.task_origin.extract_rubrics()); first verifier registered,
+  │   rubric_compliance (advisory=True, score_threshold=0.8); 329 tests passing.
   └── Rockwell-based PLC emulator via pylogix; custom library evaluation underway.
       Emulator/OpenPLC results land as verifier-critic evidence rows at the gate, not just
-      artifacts — first critic meeting the "full-pipeline verification" bar
+      artifacts — first critic meeting the "full-pipeline verification" bar (still open)
 
 P7a-MinimalGateUI (v1, built alongside P0 JWT auth) ✓
   ├── Thin web page: Markdown artifact preview + critic verdicts + five gate outcome buttons ✓

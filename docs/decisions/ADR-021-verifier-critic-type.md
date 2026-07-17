@@ -136,8 +136,30 @@ when CriticSpec is declared stable. The runner implementation ships in P5.
 
 ## Action items
 
-1. [ ] Define `VerifierSpec` and `VerifierVerdict` dataclasses in `platform/critics/` in P4.
-2. [ ] Add `register_verifier()` to the registry with the safety-class invariant check in P4.
-3. [ ] Implement the verifier runner in the gate path in P5.
-4. [ ] Add `fail_open` ignored-for-auto-blocking invariant to `register_verifier()` in P4.
-5. [ ] Store verifier `score` and `reasoning` in `task_gate_results.payload JSONB` in P5.
+Landed 2026-07-16 (P6 Landing 1) — all five items shipped together in one landing, not
+split across P4/P5 as originally scoped. Path and column corrections below.
+
+1. [x] Define `VerifierSpec` and `VerifierVerdict` dataclasses in `platform/critics/` in P4.
+   Note: `platform/critics/` is stale — the real repo path is `talos/critics/registry.py`
+   (`platform/` was never built; `talos/` is the actual module root). Phase label "P4" is
+   also stale — this landed as a single P6 item.
+2. [x] Add `register_verifier()` to the registry with the safety-class invariant check in P4.
+   Same stale-path/stale-phase note as item 1.
+3. [x] Implement the verifier runner in the gate path in P5.
+   `talos.critics.registry.run_all_verifiers()`, wired into
+   `talos.graph.spine.deliverable_node` after the P5.5 revise loop, against the final
+   deliverable only. Phase label "P5" is stale — landed in P6.
+4. [x] Add `fail_open` ignored-for-auto-blocking invariant to `register_verifier()` in P4.
+   Same stale-path/stale-phase note as item 1.
+5. [x] Store verifier `score` and `reasoning` in `task_gate_results.payload JSONB` in P5.
+   Note: `task_gate_results.payload` is stale wording — the real column is
+   `task_gate_results.details` (JSONB). Phase label "P5" is stale — landed in P6.
+
+First registered verifier: `rubric_compliance` (`advisory=True, fail_open=False,
+score_threshold=0.8`). Rubrics attach via an `<!-- talos:rubric:<field> ... -->`
+HTML-comment marker in `tasks.body`, parsed by `talos.task_origin.extract_rubrics()` — a
+deliberate departure from `parse_origin()`'s whole-body-JSON convention, since `tasks.body`
+also doubles as the deliverable-generation prompt for ordinary tasks. A task with no
+matching marker skips that verifier entirely (zero LLM calls, zero cost) — the default path
+for the overwhelming majority of tasks. The emulator/OpenPLC verifier (the P6 roadmap
+item's actual target) remains open.
