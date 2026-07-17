@@ -456,11 +456,12 @@ def test_edit_loop_reentry_gets_full_revise_behavior(pg_setup, admin_conn, monke
     admin_conn.commit()
 
     def fake_run_all_critics(deliverable, nexus_client=None, client_identifiers=None):
-        summary = deliverable.get("summary", "")
+        # First-pass default deliverable (stub mode) always carries a "document"
+        # key; the hand-built edited/revised deliverables in this test do not.
         # The initial (pre-edit) pass's default deliverable always passes --
         # only the human-edited deliverable fails, so it's the edit-loop
         # re-entry's revise attempt we're proving here, not the first pass's.
-        if summary.startswith("Tag context retrieved") or summary == "fixed-after-edit":
+        if "document" in deliverable or deliverable.get("summary") == "fixed-after-edit":
             return [_verdict("advisory_check", True)]
         return [_verdict("advisory_check", False, reason="human edit still broken")]
 

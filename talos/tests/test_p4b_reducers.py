@@ -18,6 +18,7 @@ from langgraph.types import Send
 
 from talos.graph.reducers import merge_budget, merge_disjoint_dicts
 from talos.graph.spine import (
+    STUB_DOCUMENT,
     build_graph,
     default_budget,
     dispatch_reads,
@@ -257,7 +258,7 @@ def test_full_graph_invoke_stub_mode_end_to_end(pg_setup, admin_conn, monkeypatc
     checkpoint = saver.get({"configurable": {"thread_id": f"thread-{task_id}"}})
     state = checkpoint["channel_values"]
 
-    assert state["nexus_result"] == {"tag": "MOCK_TAG", "status": "confirmed"}
+    assert state["nexus_result"] == {"document": STUB_DOCUMENT, "status": "confirmed"}
     assert state["deliverable"]["citations"][0]["status"] == "confirmed"
     assert state["budget"]["model_invocations"] == 2, (
         "expected read_node + nexus_secondary stub model calls only (chroma/rules "

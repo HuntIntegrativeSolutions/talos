@@ -211,16 +211,28 @@ def test_hook_noop_on_non_approve_outcome():
 # ---------------------------------------------------------------------------
 
 def test_get_embed_fn_air_gap_raises_clear_error(monkeypatch, tmp_path):
+    # Isolate from BOTH caches sentence-transformers consults: its own
+    # SENTENCE_TRANSFORMERS_HOME and the shared HF hub cache (a model
+    # pre-downloaded to ~/.cache/huggingface -- e.g. by an operator following
+    # docs/install.md on a connected box -- would otherwise satisfy
+    # local_files_only=True and mask the air-gap error). Also clear
+    # get_embed_fn's lru_cache: a successful load cached by an earlier test
+    # would be returned without any load attempt at all.
     from talos.memory import embedding
-
-    monkeypatch.setenv("SENTENCE_TRANSFORMERS_HOME", str(tmp_path / "empty-cache"))
+    embedding.get_embed_fn.cache_clear()
+    for var in ("SENTENCE_TRANSFORMERS_HOME", "HF_HOME", "HUGGINGFACE_HUB_CACHE", "TRANSFORMERS_CACHE"):
+        monkeypatch.setenv(var, str(tmp_path / "empty-cache"))
     with pytest.raises(RuntimeError, match="not pre-downloaded"):
         embedding.get_embed_fn()
 
 
 def test_cloud_provider_not_silently_reachable(monkeypatch):
     from talos.memory import embedding
-
+    # Clear get_embed_fn's lru_cache first -- a locally-loaded fn cached by an
+    # earlier test would be returned without re-reading the (monkeypatched)
+    # provider config, masking the NotImplementedError.
+    from talos.memory import embedding as _emb
+    _emb.get_embed_fn.cache_clear()
     monkeypatch.setattr(
         "talos.config.get_memory_config",
         lambda: {"embedding_provider": "openai", "embedding_model": "text-embedding-3-small"},

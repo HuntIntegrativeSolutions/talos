@@ -73,12 +73,13 @@ function renderDeliverable(deliverable) {
 
   rawPanel.textContent = JSON.stringify(deliverable, null, 2);
 
-  if (deliverable.summary) {
-    const html = marked.parse(String(deliverable.summary));
+  const previewText = deliverable.document || deliverable.summary;
+  if (previewText) {
+    const html = marked.parse(String(previewText));
     const clean = DOMPurify.sanitize(html);
-    const summaryDiv = document.createElement("div");
-    summaryDiv.innerHTML = clean;
-    panel.appendChild(summaryDiv);
+    const previewDiv = document.createElement("div");
+    previewDiv.innerHTML = clean;
+    panel.appendChild(previewDiv);
   }
 
   if (Array.isArray(deliverable.citations) && deliverable.citations.length > 0) {

@@ -70,13 +70,14 @@ def _normalize_content(content: str) -> str:
 
 
 def _build_extraction_prompt(deliverable: dict | None) -> str:
-    summary = (deliverable or {}).get("summary", "")
+    d = deliverable or {}
+    content = d.get("document") or d.get("summary", "")
     return (
         "Extract durable rules from the following completed task deliverable. "
         'Return a JSON array of objects, each with "rule_type" (one of '
         'factual, procedural, project_context) and "content" (a single, '
         "self-contained statement). Return [] if nothing durable was learned.\n\n"
-        f"Deliverable:\n{summary}"
+        f"Deliverable:\n{content}"
     )
 
 

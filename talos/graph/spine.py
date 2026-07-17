@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from typing import Annotated, TypedDict
 
 from langgraph.checkpoint.memory import MemorySaver
@@ -340,7 +341,7 @@ def read_node(state: SpineState) -> dict:
     budget = dict(baseline_budget)
 
     if os.environ.get("TALOS_NEXUS_STUB") == "1":
-        nexus_result = {"tag": "MOCK_TAG", "status": "confirmed"}
+        nexus_result = {"document": STUB_DOCUMENT, "status": "confirmed"}
         sdk_session_ids["read_node"] = "stub-session-id"
         budget["model_invocations"] += 1
         # Emit a stub llm.call span with > 0 latency so P3d tests can assert latency_ms.
@@ -384,7 +385,11 @@ def read_node(state: SpineState) -> dict:
         base_prompt = state.get("task_body") or f"Fetch NEXUS context for task {state['task_id']}"
         rules_query_text = state.get("task_body") or state["task_id"]  # matches read_branch_rules' query text
         rules_block = _build_rules_prompt_block(board_id, rules_query_text)
-        prompt = f"{base_prompt}\n\n{rules_block}" if rules_block else base_prompt
+        prompt = (
+            f"{base_prompt}\n\n{OUTPUT_CONTRACT_BLOCK}\n\n{rules_block}"
+            if rules_block
+            else f"{base_prompt}\n\n{OUTPUT_CONTRACT_BLOCK}"
+        )
 
         text, session_id, tokens = _call_with_fallback(
             primary, fallback, prompt=prompt,
@@ -393,7 +398,7 @@ def read_node(state: SpineState) -> dict:
             manifest=manifest, budget_check=_budget_check,
         )
         sdk_session_ids["read_node"] = session_id
-        nexus_result = {"tag": text or "UNKNOWN", "status": "confirmed"}
+        nexus_result = {"document": (text or "").strip(), "status": "confirmed"}
 
         # ADR-030 budget tracking (P3.5/P5.5): accumulate this call's usage
         # and enforce all four hard caps via _check_budget. Soft-threshold
@@ -586,6 +591,48 @@ def format_rules_context(rules: list[dict]) -> list[dict]:
             "distance": r.get("distance"),
         })
     return out
+
+
+OUTPUT_CONTRACT_BLOCK = (
+    "OUTPUT CONTRACT: your entire reply IS the final deliverable document — "
+    "write it as clean markdown intended to be rendered, verbatim, in an "
+    "approval-gate preview pane. Do not include any preamble, "
+    "acknowledgement of the request, meta-commentary, or wrapping text "
+    "before or after the document; do not say things like \"Here is...\" or "
+    "\"I've completed...\". Your first character must begin the document "
+    "itself (for example, a markdown heading), and your last character must "
+    "end it."
+)
+
+STUB_DOCUMENT = (
+    "# Stub Deliverable\n\n"
+    "This is a canned deliverable produced in TALOS_NEXUS_STUB mode for "
+    "local development and tests. No live model call was made.\n\n"
+    "## Summary\n\n"
+    "Stub run — no real NEXUS context was retrieved.\n"
+)
+
+_HEADING_RE = re.compile(r"^#{1,6}\s+(.+)$", re.MULTILINE)
+
+
+def _derive_summary(document: str, max_len: int = 160) -> str:
+    """
+    Deterministic summary derivation for deliverable_node's default branch --
+    NEVER a second LLM call. Prefers the first markdown heading; falls back
+    to the first non-empty line. Returns "" for an empty document (the
+    empty-document case is handled by an explicit sentinel one level up, in
+    deliverable_node, not here).
+    """
+    if not document:
+        return ""
+    m = _HEADING_RE.search(document)
+    candidate = m.group(1).strip() if m else next(
+        (line.strip() for line in document.splitlines() if line.strip()), ""
+    )
+    candidate = re.sub(r"\s+", " ", candidate)
+    if len(candidate) > max_len:
+        candidate = candidate[: max_len - 1].rstrip() + "…"
+    return candidate
 
 
 RULES_PROMPT_BLOCK_HEADER = "Board rules learned from prior approved work:"
@@ -1151,15 +1198,19 @@ def deliverable_node(state: SpineState) -> dict:
         from talos.crystallize import build_contradiction_review_deliverable
         deliverable = build_contradiction_review_deliverable(state["board_id"], origin)
     else:
-        deliverable = {
-            "citations": [
-                {
-                    "finding_id": state["nexus_result"].get("tag", "unknown"),
-                    "status": state["nexus_result"].get("status", "proposed"),
-                }
-            ],
-            "summary": f"Tag context retrieved: {state['nexus_result']}",
-        }
+        document = state["nexus_result"].get("document", "")
+        # Citation is a stable placeholder id + echoed status, not a real
+        # provenance link -- there is no per-claim citation extraction yet.
+        # A future landing could have the model emit a structured citation
+        # block the parser lifts out; not built here.
+        citations = [
+            {"finding_id": "nexus-context", "status": state["nexus_result"].get("status", "proposed")},
+        ]
+        if document:
+            summary = _derive_summary(document)
+        else:
+            summary = "(model returned an empty document — nothing to review)"
+        deliverable = {"summary": summary, "document": document, "citations": citations}
 
     # P4b/RT-06: only rule-promotion deliverables get a non-None client_identifiers
     # list — every other deliverable (the overwhelming majority) makes

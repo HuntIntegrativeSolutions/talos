@@ -107,7 +107,7 @@ def test_heartbeat_starvation_reclaim(pg_setup, admin_conn, monkeypatch):
         if entry == 1:
             node_blocking.wait(timeout=10)  # hard cap so a logic error can't hang the suite
         return {
-            "nexus_result": {"tag": "STUB", "status": "confirmed"},
+            "nexus_result": {"document": "stub", "status": "confirmed"},
             "sdk_session_ids": {"read_node": "stub-session-id"},
         }
 

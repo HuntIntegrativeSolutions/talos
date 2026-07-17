@@ -13,8 +13,9 @@ import psycopg2.extras
 import pytest
 from fastapi.testclient import TestClient
 
+import talos.graph.spine as spine_module
 from talos.critics.citations_resolvable import CriticResult, citations_resolvable
-from talos.graph.spine import post_gate_node, read_node
+from talos.graph.spine import STUB_DOCUMENT, _derive_summary, post_gate_node, read_node
 
 
 # ---------------------------------------------------------------------------
@@ -134,7 +135,7 @@ def test_nexus_stub_read(pg_setup, admin_conn):
     }
     result = read_node(state)
 
-    assert result["nexus_result"] == {"tag": "MOCK_TAG", "status": "confirmed"}
+    assert result["nexus_result"] == {"document": STUB_DOCUMENT, "status": "confirmed"}
 
     # read_node must not write anything to the DB.
     assert _count_rows(admin_conn, "task_events", task_id) == 0
@@ -307,6 +308,61 @@ def test_critic_blocks_unconfirmed_citation(pg_setup, admin_conn):
     assert result.passed is False
     assert "proposed" in result.reason
     assert "F1" in result.reason
+
+
+# ---------------------------------------------------------------------------
+# _derive_summary — pure function, direct unit tests
+# ---------------------------------------------------------------------------
+
+def test_derive_summary_prefers_first_heading():
+    doc = "Some preamble text\n\n# Real Title\n\nBody."
+    assert _derive_summary(doc) == "Real Title"
+
+
+def test_derive_summary_falls_back_to_first_nonempty_line_when_no_heading():
+    doc = "\n\nFirst real line.\nSecond line."
+    assert _derive_summary(doc) == "First real line."
+
+
+def test_derive_summary_collapses_whitespace():
+    doc = "# Title   with\n   extra   spaces"
+    assert _derive_summary(doc) == "Title with"
+
+
+def test_derive_summary_truncates_with_ellipsis_over_160_chars():
+    long_line = "x" * 200
+    result = _derive_summary(f"# {long_line}")
+    assert len(result) == 160
+    assert result.endswith("…")
+
+
+def test_derive_summary_empty_document_returns_empty_string():
+    assert _derive_summary("") == ""
+
+
+# ---------------------------------------------------------------------------
+# deliverable_node — empty live document must not produce a silently blank gate
+# ---------------------------------------------------------------------------
+
+def test_deliverable_node_empty_live_document_gets_alarming_summary(
+    pg_setup, admin_conn, test_graph, monkeypatch
+):
+    board_id = f"b-{uuid.uuid4().hex[:8]}"
+    task_id = f"t-{uuid.uuid4().hex[:8]}"
+    _seed_board_and_task(admin_conn, board_id, task_id)
+
+    os.environ["TALOS_NEXUS_STUB"] = "1"
+    monkeypatch.setattr(spine_module, "STUB_DOCUMENT", "")
+
+    from talos.worker import claim_and_run
+
+    claim_and_run(board_id, task_id, graph=test_graph)
+
+    task = _query_task(admin_conn, board_id, task_id)
+    assert task["status"] == "review"
+    deliverable = task["deliverable"]
+    assert deliverable["document"] == ""
+    assert deliverable["summary"] == "(model returned an empty document — nothing to review)"
 
     # Task must still have approved_at = NULL (gate not satisfied).
     task = _query_task(admin_conn, board_id, task_id)

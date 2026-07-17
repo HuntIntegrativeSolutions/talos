@@ -16,6 +16,7 @@ from talos.config import get_memory_config
 from talos.graph.spine import (
     RULE_CONTEXT_HEADER,
     RULES_PROMPT_BLOCK_HEADER,
+    STUB_DOCUMENT,
     _truncate_rules_to_token_cap,
     format_rules_context,
     merge_node,
@@ -255,7 +256,7 @@ def test_read_node_stub_mode_never_calls_rules_retrieval(monkeypatch):
 
     state = {"board_id": "b", "task_id": "t", "run_id": 0, "task_body": None}
     result = read_node(state)
-    assert result["nexus_result"] == {"tag": "MOCK_TAG", "status": "confirmed"}
+    assert result["nexus_result"] == {"document": STUB_DOCUMENT, "status": "confirmed"}
 
 
 # ---------------------------------------------------------------------------

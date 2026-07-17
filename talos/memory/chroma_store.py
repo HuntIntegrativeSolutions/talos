@@ -178,7 +178,8 @@ async def _on_task_approved(payload: dict) -> None:
             # deliverable. Not an error — nothing to ingest.
             return
 
-        markdown = row["deliverable"].get("summary", "")
+        d = row["deliverable"]
+        markdown = d.get("document") or d.get("summary", "")
         if not markdown:
             return
 

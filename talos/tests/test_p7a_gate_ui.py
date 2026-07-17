@@ -68,6 +68,7 @@ def test_deliverable_persisted_on_review_entry(pg_setup, admin_conn, test_graph,
     assert body["deliverable"] is not None
     assert "citations" in body["deliverable"]
     assert "summary" in body["deliverable"]
+    assert "document" in body["deliverable"]
 
 
 def test_deliverable_and_review_entered_at_refresh_on_edit_reentry(
