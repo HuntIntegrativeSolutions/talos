@@ -98,12 +98,40 @@ def _call_extraction_llm(board_id: str, task_id: str, deliverable: dict | None, 
 
 def _parse_extracted_rules(raw_json: str) -> list[dict]:
     """Defensive parse: malformed/invalid candidates are logged and dropped
-    individually — a single bad candidate never fails the whole batch."""
+    individually — a single bad candidate never fails the whole batch.
+
+    Code-fence tolerant (same spirit as spine's _parse_revised_deliverable /
+    _parse_verifier_response): the first live extraction run (2026-07-17)
+    produced a fenced ```json array from the extraction model, and the strict
+    json.loads here skipped the entire batch — zero rules from a perfectly
+    valid response."""
+    stripped = (raw_json or "").strip()
+    if stripped.startswith("```"):
+        stripped = stripped.strip("`")
+        if stripped.startswith("json"):
+            stripped = stripped[4:]
+        stripped = stripped.strip()
     try:
-        candidates = json.loads(raw_json)
+        candidates = json.loads(stripped)
     except (ValueError, TypeError):
-        log.warning("crystallize: extraction output was not valid JSON; skipping batch")
-        return []
+        # Model formatting is nondeterministic call-to-call (live observation:
+        # one response was a bare valid array, another failed strict parsing) --
+        # fall back to the outermost [...] substring before giving up, and log
+        # the head of what we actually got so a skipped batch is diagnosable.
+        start, end = stripped.find("["), stripped.rfind("]")
+        if start != -1 and end > start:
+            try:
+                candidates = json.loads(stripped[start:end + 1])
+            except (ValueError, TypeError):
+                candidates = None
+        else:
+            candidates = None
+        if candidates is None:
+            log.warning(
+                "crystallize: extraction output was not valid JSON; skipping batch "
+                "(head: %r)", stripped[:200],
+            )
+            return []
 
     if not isinstance(candidates, list):
         log.warning("crystallize: extraction output was not a JSON array; skipping batch")

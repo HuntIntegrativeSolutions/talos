@@ -457,3 +457,41 @@ def test_rules_verified_safety_superseded_by_respects_board_isolation(pg_setup, 
     assert row["verified"] is True
     assert row["safety"] is True
     assert row["superseded_by"] is None
+
+
+def test_parse_extracted_rules_code_fenced_json():
+    """
+    Regression (first live extraction, 2026-07-17): the extraction model
+    returned a ```json-fenced array; strict json.loads skipped the whole
+    batch — zero rules from a valid response. Parser must be fence-tolerant,
+    matching spine's _parse_revised_deliverable/_parse_verifier_response.
+    """
+    from talos.crystallize import _parse_extracted_rules
+
+    fenced = (
+        "```json\n"
+        '[{"rule_type": "factual", "content": "Emergency_Stop_Active is computed in P_Sfty/R_Perm rung 11."}]\n'
+        "```"
+    )
+    rules = _parse_extracted_rules(fenced)
+    assert rules == [{
+        "rule_type": "factual",
+        "content": "Emergency_Stop_Active is computed in P_Sfty/R_Perm rung 11.",
+    }]
+
+
+def test_parse_extracted_rules_prose_wrapped_json_array():
+    """Second live-run failure mode: the model sometimes wraps the array in
+    prose. The parser falls back to the outermost [...] substring."""
+    from talos.crystallize import _parse_extracted_rules
+
+    wrapped = (
+        'Here are the durable rules I extracted:\n\n'
+        '[{"rule_type": "procedural", "content": "Run pattern detection before trusting first-out results."}]\n\n'
+        'Let me know if you need more.'
+    )
+    rules = _parse_extracted_rules(wrapped)
+    assert rules == [{
+        "rule_type": "procedural",
+        "content": "Run pattern detection before trusting first-out results.",
+    }]
