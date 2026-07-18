@@ -216,8 +216,9 @@ def test_get_embed_fn_air_gap_raises_clear_error(monkeypatch, tmp_path):
     # pre-downloaded to ~/.cache/huggingface -- e.g. by an operator following
     # docs/install.md on a connected box -- would otherwise satisfy
     # local_files_only=True and mask the air-gap error). Also clear
-    # get_embed_fn's lru_cache: a successful load cached by an earlier test
-    # would be returned without any load attempt at all.
+    # get_embed_fn's cache (a lock-guarded module cache, not lru_cache --
+    # see talos/memory/embedding.py): a successful load cached by an earlier
+    # test would be returned without any load attempt at all.
     from talos.memory import embedding
     embedding.get_embed_fn.cache_clear()
     for var in ("SENTENCE_TRANSFORMERS_HOME", "HF_HOME", "HUGGINGFACE_HUB_CACHE", "TRANSFORMERS_CACHE"):
@@ -228,7 +229,7 @@ def test_get_embed_fn_air_gap_raises_clear_error(monkeypatch, tmp_path):
 
 def test_cloud_provider_not_silently_reachable(monkeypatch):
     from talos.memory import embedding
-    # Clear get_embed_fn's lru_cache first -- a locally-loaded fn cached by an
+    # Clear get_embed_fn's cache first -- a locally-loaded fn cached by an
     # earlier test would be returned without re-reading the (monkeypatched)
     # provider config, masking the NotImplementedError.
     from talos.memory import embedding as _emb

@@ -18,9 +18,10 @@ path is never cached.
 
 from __future__ import annotations
 
-import asyncio
 import logging
 import time
+
+from talos.async_utils import run_coro
 
 log = logging.getLogger(__name__)
 
@@ -38,7 +39,7 @@ class AnthropicDriver:
         budget_check=None,
         board_id: str | None = None,
     ) -> tuple[str, str, int]:
-        return asyncio.run(
+        return run_coro(
             _async_call(model, prompt, resume, allowed_tools=allowed_tools, mcp_servers=mcp_servers)
         )
 

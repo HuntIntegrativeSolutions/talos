@@ -32,7 +32,7 @@ Tests require Docker (testcontainers spins up Postgres 16).
 
 Run all tests:
 ```bash
-TALOS_JWT_SECRET=test-secret-dev-only TALOS_NEXUS_STUB=1 .venv/bin/python -m pytest talos/ -v
+TALOS_JWT_SECRET=test-secret-dev-only-not-for-prod-use TALOS_NEXUS_STUB=1 .venv/bin/python -m pytest talos/ -v
 ```
 
 Run P1 spine tests only:

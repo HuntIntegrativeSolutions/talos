@@ -238,3 +238,48 @@ def test_cross_provider_fallback_anthropic_to_ollama(clean_registry, nexus_live_
     )
     assert call_log == [("anthropic", "claude-x"), ("ollama", "llama-y")]
     assert (text, session_id, tokens) == ("fallback text", "session-2", 5)
+
+
+# ---------------------------------------------------------------------------
+# (5) run_coro / hooks.fire_sync nested-event-loop regression (live-mode
+#     plumbing landing): reproduces the exact shape that crashed crystallize
+#     in production -- fire_sync starts a loop via asyncio.run, the async
+#     hook body calls a driver's synchronous .call() which itself needs to
+#     run a coroutine (via talos.async_utils.run_coro).
+# ---------------------------------------------------------------------------
+
+def test_call_model_safe_when_hook_fires_inside_running_loop(clean_registry, nexus_live_mode):
+    from talos.async_utils import run_coro
+    from talos.hooks import HookRegistry
+
+    async def _fake_coro():
+        return "async-driver-text", "async-session", 3
+
+    class AsyncBridgingDriver:
+        """Mirrors AnthropicDriver.call: a sync .call() that bridges to an
+        async coroutine via run_coro instead of a bare asyncio.run()."""
+
+        def call(self, model, prompt, resume, *, allowed_tools=None, mcp_servers=None,
+                  manifest=None, budget_check=None, board_id=None):
+            return run_coro(_fake_coro())
+
+    register("fake_provider", AsyncBridgingDriver())
+
+    results = []
+
+    async def _extraction_hook(payload):
+        # Mirrors crystallize._on_task_approved calling _call_extraction_llm
+        # -> call_model synchronously (no await) from inside an async hook.
+        text, session_id, tokens = talos.llm.call_model(ModelRef("fake_provider", "m"), "prompt")
+        results.append((text, session_id, tokens))
+
+    registry = HookRegistry()
+    registry.register("on_task_approved", _extraction_hook)
+
+    # fire_sync's own asyncio.run(...) starts loop A here; before the fix,
+    # AsyncBridgingDriver.call's nested asyncio.run() inside that loop would
+    # raise "asyncio.run() cannot be called from a running event loop",
+    # silently swallowed by HookRegistry.fire's catch-all.
+    registry.fire_sync("on_task_approved", {})
+
+    assert results == [("async-driver-text", "async-session", 3)]

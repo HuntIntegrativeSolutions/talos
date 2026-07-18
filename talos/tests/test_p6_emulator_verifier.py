@@ -269,6 +269,110 @@ def test_read_emulator_inventory_refuses_empty_programs_even_with_success_status
 
 
 # ---------------------------------------------------------------------------
+# First-contact retry-once (live-mode plumbing landing): the reference
+# emulator drops the first EtherNet/IP connection after idle, so a single
+# reconnect-and-retry on the first GetDeviceProperties call must save the
+# read instead of failing the whole verifier.
+# ---------------------------------------------------------------------------
+
+def test_read_emulator_inventory_retries_once_on_first_contact_failure(monkeypatch):
+    calls = {"n": 0}
+
+    class FlakyThenOkClient:
+        def __init__(self, *a, **kw):
+            pass
+
+        def get_device_properties(self):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                raise ConnectionError("connection dropped")
+            return _FakeResponse("device info")
+
+        def get_programs_list(self):
+            return _FakeResponse(["Program:P_Main"])
+
+        def get_tag_list(self, all_tags=False):
+            return _FakeResponse([])
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(emulator_module, "ReadOnlyEmulatorClient", FlakyThenOkClient)
+    import time
+    with pytest.raises(ConnectionError, match="GetTagList returned no tags"):
+        # Empty tag list still refuses (belt-and-suspenders check) -- this
+        # confirms the retry succeeded and execution proceeded past the
+        # first-contact call rather than raising the original ConnectionError.
+        emulator_module._read_emulator_inventory({"host": "x", "slot": 0}, time.monotonic() + 30)
+    assert calls["n"] == 2, "expected exactly one retry (2 total GetDeviceProperties calls)"
+
+
+def test_read_emulator_inventory_reports_retried_first_contact_in_reasoning(monkeypatch):
+    calls = {"n": 0}
+
+    class _FakeTagStub:
+        def __init__(self, name, dtype):
+            self.TagName = name
+            self.DataType = dtype
+
+    class FlakyThenOkClient:
+        def __init__(self, *a, **kw):
+            pass
+
+        def get_device_properties(self):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                raise ConnectionError("connection dropped")
+            return _FakeResponse("device info")
+
+        def get_programs_list(self):
+            return _FakeResponse(["Program:P_Dev", "Program:P_Seq"])
+
+        def get_tag_list(self, all_tags=False):
+            return _FakeResponse([
+                _FakeTagStub("Active_Alarms", "BOOL"),
+                _FakeTagStub("AutoStart_State", "DINT"),
+                _FakeTagStub("Dryer_Temp_PV", "REAL"),
+            ])
+
+        def close(self):
+            pass
+
+    monkeypatch.setenv("TALOS_NEXUS_STUB", "1")
+    _patch_config(monkeypatch)
+    monkeypatch.setattr(emulator_module, "ReadOnlyEmulatorClient", FlakyThenOkClient)
+
+    score, reasoning = emulator_consistency_verifier({}, VALID_MARKER, None)
+    assert score == pytest.approx(1.0)
+    assert "first-contact connection failed, succeeded on retry" in reasoning
+
+
+def test_read_emulator_inventory_does_not_retry_second_or_third_call(monkeypatch):
+    """No retry anywhere except the single first-contact site: a
+    GetProgramsList failure must fail immediately, not retry."""
+    class FailsOnProgramsClient:
+        def __init__(self, *a, **kw):
+            pass
+
+        def get_device_properties(self):
+            return _FakeResponse("device info")
+
+        def get_programs_list(self):
+            raise ConnectionError("connection dropped")
+
+        def get_tag_list(self, all_tags=False):
+            raise AssertionError("should never reach GetTagList")
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(emulator_module, "ReadOnlyEmulatorClient", FailsOnProgramsClient)
+    import time
+    with pytest.raises(ConnectionError, match="connection dropped"):
+        emulator_module._read_emulator_inventory({"host": "x", "slot": 0}, time.monotonic() + 30)
+
+
+# ---------------------------------------------------------------------------
 # emulator_consistency_verifier: scoring, with TALOS_NEXUS_STUB=1
 # ---------------------------------------------------------------------------
 
@@ -293,7 +397,7 @@ def test_perfect_match_scores_1_and_passes(monkeypatch):
     emulator_tags = {"Active_Alarms": "BOOL", "AutoStart_State": "DINT", "Dryer_Temp_PV": "REAL"}
     monkeypatch.setattr(
         emulator_module, "_read_emulator_inventory",
-        lambda cfg, deadline: (emulator_programs, emulator_tags),
+        lambda cfg, deadline: (emulator_programs, emulator_tags, False),
     )
     score, reasoning = emulator_consistency_verifier({}, VALID_MARKER, None)
     assert score == pytest.approx(1.0)
@@ -309,7 +413,7 @@ def test_missing_tag_lowers_score(monkeypatch):
     emulator_tags = {"Active_Alarms": "BOOL", "AutoStart_State": "DINT", "Seq_Step": "DINT"}
     monkeypatch.setattr(
         emulator_module, "_read_emulator_inventory",
-        lambda cfg, deadline: (emulator_programs, emulator_tags),
+        lambda cfg, deadline: (emulator_programs, emulator_tags, False),
     )
     score, reasoning = emulator_consistency_verifier({}, VALID_MARKER, None)
     assert score < 1.0
@@ -325,7 +429,7 @@ def test_type_mismatch_lowers_score(monkeypatch):
     emulator_tags = {"Active_Alarms": "BOOL", "AutoStart_State": "DINT", "Dryer_Temp_PV": "DINT"}
     monkeypatch.setattr(
         emulator_module, "_read_emulator_inventory",
-        lambda cfg, deadline: (emulator_programs, emulator_tags),
+        lambda cfg, deadline: (emulator_programs, emulator_tags, False),
     )
     score, reasoning = emulator_consistency_verifier({}, VALID_MARKER, None)
     assert score < 1.0
@@ -342,7 +446,7 @@ def test_type_comparison_is_case_insensitive(monkeypatch):
     emulator_tags = {"Active_Alarms": "bool", "AutoStart_State": "dint", "Dryer_Temp_PV": "real"}
     monkeypatch.setattr(
         emulator_module, "_read_emulator_inventory",
-        lambda cfg, deadline: (emulator_programs, emulator_tags),
+        lambda cfg, deadline: (emulator_programs, emulator_tags, False),
     )
     score, _ = emulator_consistency_verifier({}, VALID_MARKER, None)
     assert score == pytest.approx(1.0)
@@ -359,7 +463,7 @@ def test_program_not_documented_in_nexus_is_not_scored_against(monkeypatch):
     emulator_tags = {"Active_Alarms": "BOOL", "AutoStart_State": "DINT", "Dryer_Temp_PV": "REAL"}
     monkeypatch.setattr(
         emulator_module, "_read_emulator_inventory",
-        lambda cfg, deadline: (emulator_programs, emulator_tags),
+        lambda cfg, deadline: (emulator_programs, emulator_tags, False),
     )
     score, reasoning = emulator_consistency_verifier({}, VALID_MARKER, None)
     assert score == pytest.approx(1.0), "undocumented emulator programs must not lower the score"
@@ -441,7 +545,7 @@ def test_emulator_inventory_filters_connection_objects(monkeypatch):
 
     monkeypatch.setattr(emulator_module, "ReadOnlyEmulatorClient", FakeClient)
     import time
-    programs, tags = emulator_module._read_emulator_inventory(
+    programs, tags, retried = emulator_module._read_emulator_inventory(
         {"host": "h", "slot": 0}, deadline=time.monotonic() + 30
     )
     assert "Real_Tag" in tags
@@ -564,6 +668,7 @@ def test_e2e_emulator_task_persists_gate_row(pg_setup, admin_conn, monkeypatch):
         lambda cfg, deadline: (
             {"P_Dev", "P_Seq"},
             {"Active_Alarms": "BOOL", "AutoStart_State": "DINT", "Dryer_Temp_PV": "REAL"},
+            False,
         ),
     )
     # No LLM call is expected on this task (no rubric_compliance marker, and

@@ -62,8 +62,7 @@ def _fetch_inventory(board_id: str) -> list[dict]:
     if os.environ.get("TALOS_NEXUS_STUB") == "1":
         return _STUB_ENTITY_INVENTORY
 
-    import asyncio
-
+    from talos.async_utils import run_coro
     from talos.nexus_client import (
         allowed_nexus_tool_names,
         call_nexus_tool_raw,
@@ -80,7 +79,7 @@ def _fetch_inventory(board_id: str) -> list[dict]:
         )
 
     url = _nexus_url()
-    result = asyncio.run(call_nexus_tool_raw(url, tool_name, {"board_id": board_id}))
+    result = run_coro(call_nexus_tool_raw(url, tool_name, {"board_id": board_id}))
     return _inventory_from_nexus_result(result)
 
 

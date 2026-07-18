@@ -19,13 +19,13 @@ Registers two provider names against the same class:
 
 from __future__ import annotations
 
-import asyncio
 import json
 import os
 import uuid
 
 import requests
 
+from talos.async_utils import run_coro
 from talos.nexus_client import allowed_nexus_tool_names, call_nexus_tool_raw, list_nexus_tools_raw
 
 
@@ -75,7 +75,7 @@ class OpenAICompatibleDriver:
             if cached is not None:
                 return cached
 
-        result = asyncio.run(call_nexus_tool_raw(nexus_url, name, args))
+        result = run_coro(call_nexus_tool_raw(nexus_url, name, args))
         content = _stringify_tool_result(result)
 
         if use_cache:
@@ -114,7 +114,7 @@ class OpenAICompatibleDriver:
 
         tools_schema: list[dict] = []
         if manifest is not None and nexus_url:
-            raw_tools = asyncio.run(list_nexus_tools_raw(nexus_url))
+            raw_tools = run_coro(list_nexus_tools_raw(nexus_url))
             allowed = set(allowed_nexus_tool_names(manifest))
             tools_schema = [_to_openai_tool_schema(t) for t in raw_tools if t.name in allowed]
 

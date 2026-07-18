@@ -23,6 +23,24 @@ requests
 
 You also need Python 3.11+ and PostgreSQL 16 on the target machine.
 
+TALOS also needs a local embedding model (`talos.memory.embedding.get_embed_fn`,
+used by the memory read fan-out and every ingest/upsert) pre-downloaded — it
+refuses to fetch one silently at runtime (air-gap rule). On a networked
+machine, run once:
+
+```bash
+python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('sentence-transformers/all-MiniLM-L6-v2')"
+```
+
+then transfer the **Hugging Face hub cache** (`~/.cache/huggingface` by
+default, or wherever `HF_HOME`/`HUGGINGFACE_HUB_CACHE` points) to the
+air-gapped box — that is where modern `sentence-transformers` actually
+resolves a model from under `local_files_only=True`. The legacy
+`SENTENCE_TRANSFORMERS_HOME` cache directory (default
+`~/.cache/torch/sentence_transformers`) is only a secondary/fallback
+location. If the model isn't found under either, `get_embed_fn()` raises a
+clear, operator-facing `RuntimeError` naming both.
+
 ## 1. Install Python dependencies
 
 ```bash

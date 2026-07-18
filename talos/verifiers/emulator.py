@@ -159,16 +159,29 @@ def _tag_name_type(tag) -> tuple[str | None, str | None]:
     return name, dtype
 
 
-def _read_emulator_inventory(cfg: dict, deadline: float) -> tuple[set[str], dict[str, str]]:
+def _read_emulator_inventory(cfg: dict, deadline: float) -> tuple[set[str], dict[str, str], bool]:
     """
-    Returns (program_names, {tag_name: data_type}) from the live emulator.
+    Returns (program_names, {tag_name: data_type}, retried_first_contact).
     Raises TimeoutError if `deadline` (time.monotonic()) is exceeded, and lets
     any pylogix/connection exception propagate -- the caller maps both to the
     verifier's (None, reason) refusal contract.
+
+    retried_first_contact is True only when the very first
+    GetDeviceProperties call failed and a single reconnect-and-retry
+    succeeded -- the reference emulator drops the first EtherNet/IP
+    connection after idle. No retry happens anywhere else in this function;
+    a GetProgramsList/GetTagList failure still fails immediately.
     """
     client = ReadOnlyEmulatorClient(cfg["host"], cfg["slot"], cfg.get("connect_timeout_s", 3))
+    retried_first_contact = False
     try:
-        _response_value(client.get_device_properties(), "GetDeviceProperties")
+        try:
+            _response_value(client.get_device_properties(), "GetDeviceProperties")
+        except (ConnectionError, TimeoutError):
+            client.close()
+            client = ReadOnlyEmulatorClient(cfg["host"], cfg["slot"], cfg.get("connect_timeout_s", 3))
+            _response_value(client.get_device_properties(), "GetDeviceProperties")
+            retried_first_contact = True
         if time.monotonic() > deadline:
             raise TimeoutError("emulator read timed out reading device properties")
 
@@ -195,7 +208,7 @@ def _read_emulator_inventory(cfg: dict, deadline: float) -> tuple[set[str], dict
         if time.monotonic() > deadline:
             raise TimeoutError("emulator read timed out reading tag list")
 
-        return programs, tags
+        return programs, tags, retried_first_contact
     finally:
         client.close()
 
@@ -522,11 +535,16 @@ def emulator_consistency_verifier(deliverable: dict, rubric_text: str, nexus_cli
     deadline = time.monotonic() + read_timeout_s
 
     try:
-        emulator_programs, emulator_tags = _read_emulator_inventory(emulator_cfg, deadline)
+        emulator_programs, emulator_tags, retried_first_contact = _read_emulator_inventory(emulator_cfg, deadline)
         nexus_rows, truncated_shards = _fetch_nexus_tag_inventory(plc_id, deadline)
     except TimeoutError as e:
         return None, str(e)
     except Exception as e:
         return None, f"emulator/NEXUS read failed: {e}"
 
-    return _score_and_reason(plc_id, emulator_key, emulator_programs, emulator_tags, nexus_rows, truncated_shards)
+    score, reason = _score_and_reason(
+        plc_id, emulator_key, emulator_programs, emulator_tags, nexus_rows, truncated_shards
+    )
+    if retried_first_contact:
+        reason = "note: first-contact connection failed, succeeded on retry\n" + reason
+    return score, reason

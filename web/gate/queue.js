@@ -47,9 +47,15 @@ async function pollQueue() {
   const boardId = currentBoardId();
   if (!boardId) return;
   const resp = await authFetch(`/boards/${encodeURIComponent(boardId)}/review-queue`);
-  if (!resp.ok) return;
+  if (!resp.ok) {
+    if (resp.status === 404) {
+      renderQueueError(`board '${boardId}' not found`);
+    }
+    return;
+  }
   const data = await resp.json();
   _lastQueueData = data;
+  clearQueueError();
 
   const currentIds = new Set(data.tasks.map((t) => t.task_id));
   if (!_firstPoll) {
@@ -63,6 +69,19 @@ async function pollQueue() {
   _firstPoll = false;
 
   renderQueueRows();
+}
+
+function renderQueueError(message) {
+  const errEl = document.getElementById("queue-error");
+  errEl.textContent = message;
+  errEl.classList.remove("hidden");
+  document.getElementById("queue-rows").innerHTML = "";
+}
+
+function clearQueueError() {
+  const errEl = document.getElementById("queue-error");
+  errEl.textContent = "";
+  errEl.classList.add("hidden");
 }
 
 function fireNewReviewNotification(task) {

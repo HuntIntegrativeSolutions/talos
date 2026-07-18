@@ -22,9 +22,11 @@ import os
 import pathlib
 
 # Must be set before talos.api (or anything importing it) is imported.
-# Tests run with TALOS_JWT_SECRET=test-secret-dev-only; this setdefault
-# is the fallback for bare `pytest` invocations without the env prefix.
-os.environ.setdefault("TALOS_JWT_SECRET", "test-secret-dev-only")
+# Tests run with TALOS_JWT_SECRET=test-secret-dev-only-not-for-prod-use; this
+# setdefault is the fallback for bare `pytest` invocations without the env
+# prefix. Must stay >=32 bytes -- talos.api._lifespan enforces the RFC 7518
+# HS256 minimum key length at startup.
+os.environ.setdefault("TALOS_JWT_SECRET", "test-secret-dev-only-not-for-prod-use")
 
 import psycopg2
 import psycopg2.extras

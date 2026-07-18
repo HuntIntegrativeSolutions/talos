@@ -28,9 +28,15 @@ from talos.db import board_scope, get_conn
 
 @asynccontextmanager
 async def _lifespan(app):
-    if not os.environ.get("TALOS_JWT_SECRET"):
+    secret = os.environ.get("TALOS_JWT_SECRET")
+    if not secret:
         raise RuntimeError(
             "TALOS_JWT_SECRET is required. Set it before starting the server."
+        )
+    if len(secret.encode("utf-8")) < 32:
+        raise RuntimeError(
+            "TALOS_JWT_SECRET must be at least 32 bytes (RFC 7518 HS256 minimum); "
+            f"got {len(secret.encode('utf-8'))}."
         )
     # post_gate_node (and its on_task_approved hook fire) only ever runs here,
     # inside the API process — submit_gate_outcome() resumes the graph past

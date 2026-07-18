@@ -313,3 +313,57 @@ def test_llm_call_span_has_latency(pg_setup, admin_conn):
         assert span.get("latency_ms") is not None and span["latency_ms"] > 0, (
             f"llm.call span missing latency_ms > 0: {span}"
         )
+
+
+# ---------------------------------------------------------------------------
+# Test 7/8 (live-mode plumbing landing): emit_span persists via a
+# self-managed connection when no db_conn is passed -- the shape every real
+# call site in spine.py/worker.py/llm.py uses. TALOS_NEXUS_STUB is unset so
+# emit_span takes the live-mode path instead of the stub buffer.
+# ---------------------------------------------------------------------------
+
+def test_emit_span_persists_without_explicit_db_conn(pg_setup, admin_conn, monkeypatch):
+    """
+    Calling emit_span with no db_conn (the shape every spine.py/worker.py/
+    llm.py call site uses) must open its own connection, scope it via
+    board_scope so the RLS WITH CHECK passes, and land a real row -- not
+    silently drop the span.
+    """
+    monkeypatch.delenv("TALOS_NEXUS_STUB", raising=False)
+
+    board_id = "obs-board-7"
+    task_id = "obs-task-7"
+    with admin_conn.cursor() as cur:
+        _seed(cur, board_id, task_id)
+    admin_conn.commit()
+
+    ctx = SpanContext(board_id=board_id, task_id=task_id, run_id=None)
+    result_id = emit_span(ctx, "worker.claim", payload={"note": "no explicit db_conn"})
+
+    assert result_id != -1
+
+    with admin_conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        cur.execute(
+            "SELECT board_id, span_name FROM task_spans WHERE id = %s",
+            (result_id,),
+        )
+        row = cur.fetchone()
+    assert row is not None
+    assert row["board_id"] == board_id
+    assert row["span_name"] == "worker.claim"
+
+
+def test_emit_span_logs_and_drops_on_db_failure(monkeypatch):
+    """Span persistence must never fail a task -- a DB error acquiring the
+    self-managed connection (or during insert) is logged and swallowed."""
+    monkeypatch.delenv("TALOS_NEXUS_STUB", raising=False)
+
+    def _raise_get_conn(*args, **kwargs):
+        raise OSError("db unreachable")
+
+    monkeypatch.setattr("talos.db.get_conn", _raise_get_conn)
+
+    ctx = SpanContext(board_id="doesnt-matter", task_id="t1", run_id=None)
+    result = emit_span(ctx, "worker.claim")
+
+    assert result == -1

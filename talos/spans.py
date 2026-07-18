@@ -76,32 +76,51 @@ def emit_span(
         _STUB_BUFFER.append(record)
         return f"stub-{len(_STUB_BUFFER)}"
 
-    if db_conn is None:
-        log.warning("emit_span called without db_conn in live mode; span dropped: %s", span_name)
-        return -1
+    insert_sql = """
+        INSERT INTO task_spans
+            (board_id, task_id, run_id, parent_span_id, span_name,
+             model_id, provider, prompt_tokens, completion_tokens,
+             latency_ms, payload)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb)
+        RETURNING id
+        """
+    insert_params = (
+        ctx.board_id, ctx.task_id, ctx.run_id,
+        parent_span_id, span_name,
+        model_id, provider, prompt_tokens, completion_tokens,
+        latency_ms,
+    )
 
     try:
         import json
         import psycopg2.extras
-        with db_conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-            cur.execute(
-                """
-                INSERT INTO task_spans
-                    (board_id, task_id, run_id, parent_span_id, span_name,
-                     model_id, provider, prompt_tokens, completion_tokens,
-                     latency_ms, payload)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb)
-                RETURNING id
-                """,
-                (
-                    ctx.board_id, ctx.task_id, ctx.run_id,
-                    parent_span_id, span_name,
-                    model_id, provider, prompt_tokens, completion_tokens,
-                    latency_ms,
-                    json.dumps(payload) if payload is not None else None,
-                ),
-            )
-            return cur.fetchone()["id"]
+        params = insert_params + (json.dumps(payload) if payload is not None else None,)
+
+        if db_conn is not None:
+            with db_conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+                cur.execute(insert_sql, params)
+                return cur.fetchone()["id"]
+
+        # No caller-owned connection (the common case: every emit_span call
+        # site in spine.py/worker.py/llm.py has already closed its own
+        # scoped connection by the time it emits a span). Open a short-lived
+        # one here and route it through board_scope so app.board_id is set
+        # for the RLS WITH CHECK -- task_spans has FORCE ROW LEVEL SECURITY
+        # (V0003), so a bare talos_app INSERT without board_scope fails the
+        # policy check and would silently reproduce the drop this exists to
+        # fix. One connection per span is an accepted cost at single-box v1
+        # scale; connection pooling is the future optimization if
+        # span-emission overhead ever matters.
+        from talos.db import board_scope, get_conn
+
+        conn = get_conn()
+        try:
+            with board_scope(conn, ctx.board_id) as cur:
+                cur.execute(insert_sql, params)
+                row = cur.fetchone()
+            return row["id"]
+        finally:
+            conn.close()
     except Exception:
         log.exception("failed to emit span %r", span_name)
         return -1
